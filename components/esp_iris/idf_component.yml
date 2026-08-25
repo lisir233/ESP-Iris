@@ -2,9 +2,6 @@ version: "0.1.0"
 description: Low-overhead ESP-Iris binary device link
 license: Apache-2.0
 
-targets:
-  - esp32s31
-
 dependencies:
   idf: ">=5.5"
 
