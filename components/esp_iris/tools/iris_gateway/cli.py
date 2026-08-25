@@ -136,8 +136,13 @@ async def _web(args: argparse.Namespace) -> None:
                 await hub.add_tcp(host, port, pairing_token=args.pairing_token)
             for port in args.usb:
                 await hub.add_usb(port)
+            for port in args.usb_serial_jtag:
+                await hub.add_usb(port, usb_serial_jtag=True)
             if args.discover_usb:
-                await hub.start_usb_discovery(args.usb_discovery_interval)
+                await hub.start_usb_discovery(
+                    args.usb_discovery_interval,
+                    include_usb_serial_jtag=args.discover_usb_serial_jtag,
+                )
 
         context = None
         fingerprint = None
@@ -603,8 +608,9 @@ def _doctor(args: argparse.Namespace) -> int:
                 "pid": f"{port.pid:04x}",
                 "serial_number": port.serial_number,
                 "product": port.product,
+                "transport": port.transport,
             }
-            for port in discover_iris_usb_devices()
+            for port in discover_iris_usb_devices(include_usb_serial_jtag=True)
         ]
     except ImportError:
         report["pyserial"] = False
@@ -628,7 +634,16 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--tcp", action="append", default=[], metavar="HOST[:PORT]")
     web_parser.add_argument("--pairing-token")
     web_parser.add_argument("--usb", action="append", default=[], metavar="PORT")
+    web_parser.add_argument(
+        "--usb-serial-jtag", action="append", default=[], metavar="PORT"
+    )
     web_parser.add_argument("--discover-usb", action=argparse.BooleanOptionalAction, default=True)
+    web_parser.add_argument(
+        "--discover-usb-serial-jtag",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="also probe Espressif USB Serial/JTAG ports; disabled by default",
+    )
     web_parser.add_argument("--usb-discovery-interval", type=float, default=1.0)
     web_parser.add_argument("--listen", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8443)

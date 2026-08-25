@@ -28,6 +28,17 @@ idf.py -C examples/esp_iris_minimal -B build-ci-usb \
   -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
 ```
 
+To build the USB Serial/JTAG variant:
+
+```bash
+idf.py -C examples/esp_iris_minimal -B build-ci-usj \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
+```
+
+This variant moves the ESP-IDF console off USB Serial/JTAG and gives its CDC
+serial channel exclusively to ESP-Iris. Stop the Gateway before flashing or
+using another serial tool on the same endpoint. JTAG remains available.
+
 Application USB is an ESP-Iris binary port, not a serial monitor or automatic
 flashing port. Flash the first image over UART or after manually entering ROM
 download mode, then run the PC Hub against the enumerated CDC device.

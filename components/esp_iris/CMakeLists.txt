@@ -11,6 +11,8 @@ if(CONFIG_ESP_IRIS_ENABLE)
     )
     if(CONFIG_ESP_IRIS_TRANSPORT_USB)
         list(APPEND ESP_IRIS_SRCS "src/esp_iris_transport_usb.c")
+    elseif(CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
+        list(APPEND ESP_IRIS_SRCS "src/esp_iris_transport_usb_serial_jtag.c")
     else()
         list(APPEND ESP_IRIS_SRCS "src/esp_iris_transport_tcp.c")
     endif()
@@ -26,5 +28,6 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES app_update esp_app_format esp_system esp_timer nvs_flash vfs
-    PRIV_REQUIRES esp_netif esp_partition esp_tinyusb espcoredump lwip mbedtls
+    PRIV_REQUIRES esp_driver_usb_serial_jtag esp_netif esp_partition esp_tinyusb
+                  espcoredump lwip mbedtls
 )

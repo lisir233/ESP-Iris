@@ -652,7 +652,11 @@ static bool pump_link(iris_runtime_t *runtime, uint8_t *input,
 
     if (runtime->tx_wire_length == 0) {
         const int64_t now = esp_timer_get_time();
-        if (!runtime->hello_acked && now >= runtime->next_hello_us) {
+        const bool replay_hello =
+            iris_transport_kind() ==
+                ESP_IRIS_TRANSPORT_KIND_USB_SERIAL_JTAG;
+        if ((!runtime->hello_acked || replay_hello) &&
+                now >= runtime->next_hello_us) {
             if (queue_hello(runtime) == ESP_OK) {
                 runtime->next_hello_us = now + IRIS_HELLO_INTERVAL_US;
             }

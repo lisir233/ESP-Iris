@@ -65,17 +65,40 @@ class SerialLink(Link):
         self._closing = False
 
     @classmethod
-    async def open(cls, port: str) -> SerialLink:
+    async def open(
+        cls,
+        port: str,
+        *,
+        hupcl: bool | None = None,
+    ) -> SerialLink:
         import serial
 
-        serial_port = await asyncio.to_thread(
-            serial.Serial,
-            port=port,
-            baudrate=115200,
-            timeout=0.2,
-            write_timeout=2,
-            exclusive=True if os.name == "posix" else None,
-        )
+        def open_port() -> BinaryIO:
+            options = {
+                "baudrate": 115200,
+                "timeout": 0.2,
+                "write_timeout": 2,
+                "exclusive": True if os.name == "posix" else None,
+            }
+            serial_port = serial.Serial(port=port, **options)
+            try:
+                if hupcl is not None and os.name == "posix":
+                    import termios
+
+                    attributes = termios.tcgetattr(serial_port.fileno())
+                    if hupcl:
+                        attributes[2] |= termios.HUPCL
+                    else:
+                        attributes[2] &= ~termios.HUPCL
+                    termios.tcsetattr(
+                        serial_port.fileno(), termios.TCSANOW, attributes
+                    )
+            except BaseException:
+                serial_port.close()
+                raise
+            return serial_port
+
+        serial_port = await asyncio.to_thread(open_port)
         return cls(port, serial_port)
 
     def _read_batch(self, size: int) -> bytes:
@@ -129,10 +152,9 @@ class SerialLink(Link):
             if cancel_read is not None:
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(cancel_read)
-            async with self._read_lock:
-                async with self._write_lock:
-                    if self._serial.is_open:
-                        await asyncio.to_thread(self._serial.close)
+            async with self._read_lock, self._write_lock:
+                if self._serial.is_open:
+                    await asyncio.to_thread(self._serial.close)
 
 
 class EndpointLock:

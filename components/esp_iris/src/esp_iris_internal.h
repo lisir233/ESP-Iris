@@ -30,6 +30,8 @@ typedef struct {
     atomic_bool host_open;
     atomic_bool disconnect_pending;
     char usb_serial[33];
+    int usb_serial_jtag_install_core;
+    bool usb_serial_jtag_auto_reset_was_disabled;
 } iris_transport_state_t;
 
 typedef struct {

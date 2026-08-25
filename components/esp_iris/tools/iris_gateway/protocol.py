@@ -30,6 +30,12 @@ class Channel(enum.IntEnum):
     CRASH = 7
 
 
+class Transport(enum.IntEnum):
+    USB = 1
+    TCP = 2
+    USB_SERIAL_JTAG = 3
+
+
 class ControlType(enum.IntEnum):
     HELLO = 0x01
     HELLO_ACK = 0x02

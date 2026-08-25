@@ -6,10 +6,20 @@ fields.
 
 ## Link
 
-Normal firmware compiles exactly one link: USB CDC0 or a raw TCP server. CDC0
-contains only ESP-Iris binary frames. Baud rate, line coding and RTS have no
-protocol meaning. USB DTR open/close delimits a PC link session, but never
-requests reset or ROM download mode.
+Normal firmware compiles exactly one link: application USB CDC0, USB
+Serial/JTAG, or a raw TCP server. USB serial channels contain only ESP-Iris
+binary frames. Baud rate and line coding have no protocol meaning. Application
+USB DTR open/close delimits a PC link session, but never requests reset or ROM
+download mode.
+
+USB Serial/JTAG uses transport value `3` (`1` is application USB CDC0 and `2`
+is TCP). Its ESP-IDF public connection state describes cable/SOF presence, not
+whether a process has the serial endpoint open. It therefore repeats HELLO
+once per second even after HELLO_ACK. A Gateway reopen may re-acknowledge that
+HELLO and joins the existing physical session; only cable loss or reboot
+creates a new session ID. Repeated HELLO_ACK remains idempotent. Firmware
+disables the USB Serial/JTAG DTR/RTS reset function while this transport owns
+the serial channel, restoring its previous value on `esp_iris_stop()`.
 
 The TCP server listens on `0.0.0.0:19772` by default and accepts one physical
 session. ESP-Iris does not initialize Wi-Fi or provision credentials. The PC

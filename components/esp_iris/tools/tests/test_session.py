@@ -480,6 +480,72 @@ def test_unanswered_clock_probe_closes_stale_live_session() -> None:
     asyncio.run(scenario())
 
 
+def test_usb_serial_jtag_keeps_link_after_unanswered_clock_probes() -> None:
+    async def scenario() -> None:
+        link = FakeLink()
+
+        async def on_ready(session: DeviceSession) -> None:
+            pass
+
+        async def on_event(event: dict[str, object]) -> None:
+            pass
+
+        session = DeviceSession(
+            link,
+            on_ready,
+            on_event,
+            clock_sync_interval=0.01,
+            clock_sync_timeout=0.01,
+        )
+        task = asyncio.create_task(session.run())
+        await link.incoming.put(
+            encode_frame(
+                Frame(
+                    channel=Channel.CONTROL,
+                    type=ControlType.HELLO,
+                    session_id=0x12345678,
+                    sequence=1,
+                    payload=encode_tlv(
+                        [
+                            (
+                                TlvTag.DEVICE_ID,
+                                bytes.fromhex(
+                                    "00112233445566778899aabbccddeeff"
+                                ),
+                            ),
+                            (TlvTag.BOOT_ID, struct.pack("<Q", 7)),
+                            (
+                                TlvTag.PROTOCOL_VERSION,
+                                struct.pack("<H", 1),
+                            ),
+                            (TlvTag.CAPABILITIES, struct.pack("<Q", 0x0F)),
+                            (TlvTag.TRANSPORT, b"\x03"),
+                            (TlvTag.AUTH_MODE, b"\x00"),
+                            (TlvTag.MAX_PAYLOAD, struct.pack("<I", 4000)),
+                        ]
+                    ),
+                )
+            )
+        )
+        await session.wait_ready()
+        for _ in range(100):
+            probe_types = [
+                decode_frame(wire[:-1]).type
+                for wire in link.writes
+                if decode_frame(wire[:-1]).channel == Channel.CONTROL
+            ]
+            if probe_types.count(ControlType.TIME_SYNC_REQUEST) >= 2:
+                break
+            await asyncio.sleep(0.002)
+        assert probe_types.count(ControlType.TIME_SYNC_REQUEST) >= 2
+        assert link.closed is False
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+
 def test_rpc_jobs_screenshot_media_ota_and_restart() -> None:
     async def scenario() -> None:
         link = FakeLink()

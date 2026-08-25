@@ -23,6 +23,18 @@ config ESP_IRIS_TRANSPORT_USB
         binary LOG channel; CDC is not a text console and DTR/RTS never enters
         ROM download mode.
 
+config ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
+    bool "USB Serial/JTAG serial channel (ESP-Iris binary protocol only)"
+    depends on SOC_USB_SERIAL_JTAG_SUPPORTED
+    depends on !ESP_CONSOLE_USB_SERIAL_JTAG
+    depends on !ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+    select USJ_ENABLE_USB_SERIAL_JTAG
+    help
+        ESP-Iris owns the fixed USB Serial/JTAG CDC serial channel. The JTAG
+        interface remains available, but the serial channel cannot also be an
+        ESP-IDF console or serial monitor. Flashing tools and ESP-Iris must not
+        open the serial endpoint concurrently.
+
 config ESP_IRIS_TRANSPORT_TCP
     bool "Raw TCP server"
     help
@@ -36,6 +48,28 @@ config ESP_IRIS_TCP_PORT
     depends on ESP_IRIS_TRANSPORT_TCP
     range 1024 65535
     default 19772
+
+config ESP_IRIS_USB_SERIAL_JTAG_RX_BUFFER_BYTES
+    int "USB Serial/JTAG receive ring size"
+    depends on ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
+    range 512 8192
+    default 2048
+
+config ESP_IRIS_USB_SERIAL_JTAG_TX_BUFFER_BYTES
+    int "USB Serial/JTAG transmit ring size"
+    depends on ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
+    range 512 8192
+    default 2048
+
+config ESP_IRIS_USB_SERIAL_JTAG_DISABLE_AUTO_RESET
+    bool "Disable USB Serial/JTAG DTR/RTS reset while Iris is running"
+    depends on ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
+    default y
+    help
+        Prevent opening or closing the ESP-Iris serial endpoint from resetting
+        the chip through the USB Serial/JTAG peripheral. The previous hardware
+        setting is restored by esp_iris_stop(). Use a separate UART or manual
+        boot/reset sequence when flashing while ESP-Iris is running.
 
 config ESP_IRIS_TASK_STACK_SIZE
     int "Worker task stack size (bytes)"

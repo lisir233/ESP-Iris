@@ -18,9 +18,10 @@ void app_main(void)
 }
 ```
 
-Configuration is entirely in Kconfig/NVS. Normal firmware compiles USB CDC0 or
-raw TCP, never both. The recommended Mosaico template uses the ESP-Iris USB
-Highspeed path for both normal and recovery firmware.
+Configuration is entirely in Kconfig/NVS. Normal firmware compiles application
+USB CDC0, USB Serial/JTAG, or raw TCP, never more than one. The recommended
+Mosaico template uses the ESP-Iris USB Highspeed path for both normal and
+recovery firmware.
 
 For USB Iris, disable `CONFIG_BSP_USB_CONSOLE` and enable
 `CONFIG_ESP_IRIS_TRANSPORT_USB`. Iris owns TinyUSB CDC0, redirects stdout and
@@ -29,6 +30,18 @@ not interpret RTS/DTR as reset or download commands and ignores line coding.
 Initial provisioning or catastrophic recovery must therefore use a separate
 Serial-JTAG/UART path or a manually entered ROM USB downloader. Factory
 recovery will later provide its own USB Iris image.
+
+`CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG` instead uses the chip's fixed USB
+Serial/JTAG CDC serial channel. Its serial console and secondary console must
+be disabled because the link contains only framed ESP-Iris traffic. The JTAG
+interface remains usable, and ROM/application flashing remains available after
+`esp_iris_stop()` restores the USB reset behavior; a separate UART or manual
+boot/reset sequence is required to flash while Iris is running. Iris disables
+USB DTR/RTS reset by default so opening the Gateway cannot reboot the device.
+Because the public ESP-IDF driver reports cable presence rather than
+serial-open state, this transport replays HELLO once per second while
+connected; reopening the Gateway joins the same physical session until the
+cable disconnects or the device reboots.
 
 TCP Iris initializes the idempotent global `esp_netif`/lwIP core before it
 opens a listener. The product remains responsible for NVS, interfaces, Wi-Fi,
@@ -54,8 +67,9 @@ M1-M11 are implemented:
 - HELLO, PING, time synchronization, status and channel credit;
 - nonblocking 4 KiB stdout/stderr ring and LOG records;
 - bounded lifecycle/resource telemetry with reversible stop/start;
-- single CDC0 or single-client raw TCP transport;
-- Python USB hotplug/TCP supervisors, endpoint locks and reconnect backoff;
+- single application CDC0, USB Serial/JTAG, or single-client raw TCP transport;
+- Python application-USB/opt-in Serial-JTAG hotplug and TCP supervisors,
+  endpoint locks and reconnect backoff;
 - explicit boot/link/service/health event and time semantics;
 - read-only reset/crash metadata and optional chunked Flash coredump download;
 - fixed-size binary RPC registration, deadlines and bounded retained jobs;

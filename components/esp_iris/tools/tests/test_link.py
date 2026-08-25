@@ -1,6 +1,9 @@
 import asyncio
+import sys
+import termios
 import threading
 import time
+from types import SimpleNamespace
 
 from iris_gateway.link import SerialLink
 
@@ -128,5 +131,39 @@ def test_serial_cancel_drains_in_flight_thread_before_close() -> None:
             pass
         await link.close()
         assert serial.is_open is False
+
+    asyncio.run(scenario())
+
+
+def test_usb_serial_jtag_disables_hangup_on_close(monkeypatch) -> None:
+    changed: list[tuple[int, int, list[object]]] = []
+
+    class DeferredSerial(FakeSerial):
+        def __init__(self, *, port: str, **options: object) -> None:
+            super().__init__([])
+            assert port == "/dev/fake-usj"
+
+        def fileno(self) -> int:
+            return 42
+
+    attributes: list[object] = [0, 0, termios.HUPCL, 0, 0, 0, []]
+    monkeypatch.setitem(
+        sys.modules, "serial", SimpleNamespace(Serial=DeferredSerial)
+    )
+    monkeypatch.setattr(termios, "tcgetattr", lambda fd: attributes.copy())
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, values: changed.append((fd, when, values)),
+    )
+
+    async def scenario() -> None:
+        link = await SerialLink.open("/dev/fake-usj", hupcl=False)
+        assert len(changed) == 1
+        fd, when, values = changed[0]
+        assert fd == 42
+        assert when == termios.TCSANOW
+        assert int(values[2]) & termios.HUPCL == 0
+        await link.close()
 
     asyncio.run(scenario())

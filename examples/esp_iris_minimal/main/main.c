@@ -13,6 +13,8 @@ static const char *transport_name(esp_iris_transport_kind_t transport)
         return "usb";
     case ESP_IRIS_TRANSPORT_KIND_TCP:
         return "tcp";
+    case ESP_IRIS_TRANSPORT_KIND_USB_SERIAL_JTAG:
+        return "usb-serial-jtag";
     default:
         return "unknown";
     }

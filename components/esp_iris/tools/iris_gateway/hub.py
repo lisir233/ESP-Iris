@@ -11,7 +11,7 @@ from typing import Any
 
 from .discovery import discover_iris_usb_devices
 from .link import EndpointLock, Link, SerialLink, TcpLink
-from .protocol import ProtocolError
+from .protocol import ProtocolError, Transport
 from .session import DeviceSession
 
 LinkOpener = Callable[[], Awaitable[Link]]
@@ -137,10 +137,18 @@ class IrisHub:
 
         self._add_supervisor(endpoint, opener, pairing_token=pairing_token)
 
-    async def add_usb(self, port: str, firmware_mode: str | None = None) -> None:
+    async def add_usb(
+        self,
+        port: str,
+        firmware_mode: str | None = None,
+        *,
+        usb_serial_jtag: bool = False,
+    ) -> None:
         endpoint = f"usb:{os.path.realpath(port)}"
 
         async def opener() -> Link:
+            if usb_serial_jtag:
+                return await SerialLink.open(port, hupcl=False)
             return await SerialLink.open(port)
 
         self._add_supervisor(endpoint, opener)
@@ -151,6 +159,9 @@ class IrisHub:
             elif "normal" in lowered:
                 firmware_mode = "normal"
         self._endpoint_states[endpoint]["firmware_mode"] = firmware_mode or "unknown"
+        self._endpoint_states[endpoint]["transport_name"] = (
+            "USB Serial/JTAG" if usb_serial_jtag else "USB Highspeed"
+        )
 
     def _add_supervisor(
         self,
@@ -183,14 +194,22 @@ class IrisHub:
             name=f"iris-supervisor-{endpoint}",
         )
 
-    async def start_usb_discovery(self, interval_seconds: float = 1.0) -> None:
+    async def start_usb_discovery(
+        self,
+        interval_seconds: float = 1.0,
+        *,
+        include_usb_serial_jtag: bool = False,
+    ) -> None:
         if self._discovery_task is not None:
             return
 
         async def discover_loop() -> None:
             while True:
                 try:
-                    devices = await asyncio.to_thread(discover_iris_usb_devices)
+                    devices = await asyncio.to_thread(
+                        discover_iris_usb_devices,
+                        include_usb_serial_jtag=include_usb_serial_jtag,
+                    )
                 except (OSError, ImportError):
                     devices = []
                 for device in devices:
@@ -201,7 +220,13 @@ class IrisHub:
                         else "unknown"
                     )
                     with contextlib.suppress(RuntimeError):
-                        await self.add_usb(device.path, firmware_mode=firmware_mode)
+                        await self.add_usb(
+                            device.path,
+                            firmware_mode=firmware_mode,
+                            usb_serial_jtag=(
+                                device.transport == "usb_serial_jtag"
+                            ),
+                        )
                 await asyncio.sleep(interval_seconds)
 
         self._discovery_task = asyncio.create_task(
@@ -372,9 +397,11 @@ class IrisHub:
             item = session.info.as_dict()
             state = self._endpoint_states.get(session.link.endpoint, {})
             item["firmware_mode"] = state.get("firmware_mode", "unknown")
-            item["transport_name"] = (
-                "USB Highspeed" if session.link.endpoint.startswith("usb:") else "TCP"
-            )
+            item["transport_name"] = {
+                Transport.USB: "USB Highspeed",
+                Transport.TCP: "TCP",
+                Transport.USB_SERIAL_JTAG: "USB Serial/JTAG",
+            }.get(session.info.transport, "Unknown")
             result.append(item)
         return result
 

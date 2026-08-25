@@ -68,6 +68,21 @@ python3 common_components/esp_iris/tools/esp_iris.py web \
   --usb /dev/serial/by-id/usb-Espressif_ESP-Iris_Normal_...
 ```
 
+For firmware built with the USB Serial/JTAG transport, select the fixed port
+explicitly. The host avoids an application-level DTR/RTS reset sequence and,
+on POSIX hosts, disables hang-up-on-close (`HUPCL`). The firmware also disables
+the USB peripheral's DTR/RTS reset function while Iris owns the channel:
+
+```bash
+python3 common_components/esp_iris/tools/esp_iris.py web \
+  --usb-serial-jtag /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...
+```
+
+Automatic probing of Espressif USB Serial/JTAG ports is intentionally off
+because their fixed descriptors do not identify whether ESP-Iris firmware is
+running. Enable it explicitly with `--discover-usb-serial-jtag`; the normal
+ESP-Iris CDC0 discovery remains enabled by default.
+
 ## Demo and diagnostics
 
 Demo mode never opens USB. It runs three clearly labeled virtual devices,
@@ -186,6 +201,8 @@ cd ../../../..
 idf.py -C examples/esp_iris_minimal -B build-ci-tcp build
 idf.py -C examples/esp_iris_minimal -B build-ci-usb \
   -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
+idf.py -C examples/esp_iris_minimal -B build-ci-usj \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
 idf.py -C examples/esp_iris_tcp_wifi -B build-ci build
 idf.py -C examples/esp_iris_tcp_pairing -B build-ci build
 idf.py -C examples/esp_iris_rpc_jobs -B build-ci build
@@ -202,6 +219,6 @@ idf.py -C examples/esp_iris_ota -B build-ci-application \
   -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
 ```
 
-Python module and contract tests, frontend unit tests/build, both minimal
+Python module and contract tests, frontend unit tests/build, all minimal
 firmware transports, and all P0/P1 examples fail closed. Firmware compilation
 requires an initialized ESP-IDF shell or a GitLab runner tagged `esp-idf`.

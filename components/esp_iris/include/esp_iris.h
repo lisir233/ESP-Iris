@@ -14,6 +14,7 @@ extern "C" {
 typedef enum {
     ESP_IRIS_TRANSPORT_KIND_USB = 1,
     ESP_IRIS_TRANSPORT_KIND_TCP = 2,
+    ESP_IRIS_TRANSPORT_KIND_USB_SERIAL_JTAG = 3,
 } esp_iris_transport_kind_t;
 
 typedef enum {

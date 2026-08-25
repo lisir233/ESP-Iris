@@ -24,6 +24,7 @@ from .protocol import (
     OtaType,
     ProtocolError,
     TlvTag,
+    Transport,
     decode_tlv,
     encode_frame,
     tlv_u8,
@@ -894,6 +895,17 @@ class DeviceSession:
             try:
                 await self.sync_clock(self._clock_sync_timeout)
             except (TimeoutError, ConnectionError, ProtocolError, RuntimeError):
+                if (
+                    self.info is not None
+                    and self.info.transport == Transport.USB_SERIAL_JTAG
+                ):
+                    # USB Serial/JTAG is a fixed hardware endpoint. A physical
+                    # disconnect produces EOF/re-enumeration in run(), so a
+                    # missed clock probe is not evidence of a stale endpoint.
+                    # Closing it here can itself pulse the controller's reset
+                    # state on some hosts.
+                    await asyncio.sleep(self._clock_sync_interval)
+                    continue
                 # A serial read timeout is handled inside SerialLink and is not
                 # an EOF. An unanswered protocol request is different: the
                 # enumerated CDC endpoint can outlive the recovery firmware
