@@ -435,5 +435,4 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_iris_rpc_register(1, 6, state_rpc, NULL));
     ESP_ERROR_CHECK(esp_iris_screen_register(&screen));
     ESP_ERROR_CHECK(esp_iris_start());
-    ESP_ERROR_CHECK(esp_iris_mark_services_ready());
 }

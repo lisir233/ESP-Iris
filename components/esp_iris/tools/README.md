@@ -1,224 +1,263 @@
-# ESP-Iris Developer Gateway
+# ESP-Iris Developer Gateway and Web Workbench
 
-This directory is the canonical PC implementation for ESP-Iris. It is source
-inside the component, not an installable Python package. The same code runs on
-Linux, macOS, and Windows with Python 3.11 or newer. Current real-board
-validation is performed on Linux.
+The Developer Gateway is the PC-side implementation of ESP-Iris. It owns USB
+or TCP device sessions, exposes a local REST/WebSocket API, stores durable
+engineering records, and serves the React Web Workbench. The same API also
+backs the `ctl` command-line client and external agents.
 
-## Install runtime dependencies
+The Gateway is source distributed with the ESP-IDF component. It is not
+installed as a Python package.
 
-Create a virtual environment anywhere outside or inside the checkout, then
-install the component requirements:
+## Requirements
+
+- Python 3.11 or newer
+- Linux, macOS, or Windows; real-board validation currently focuses on Linux
+- Node.js and npm when the Workbench must be built from source
+- A dedicated serial endpoint for USB transports
+
+Set one path for the rest of this guide:
+
+```bash
+# Source checkout
+ESP_IRIS_COMPONENT_DIR=components/esp_iris
+
+# Component Manager installation
+# ESP_IRIS_COMPONENT_DIR=managed_components/lisir233__esp_iris
+```
+
+PowerShell users can set the equivalent `$env:ESP_IRIS_COMPONENT_DIR` value and
+use `python` when it is the Python 3 launcher.
+
+## Install the Gateway
+
+Create an isolated environment and install the runtime dependencies:
 
 ```bash
 python3 -m venv .venv
-. .venv/bin/activate                 # Linux/macOS
-python -m pip install -r common_components/esp_iris/tools/requirements.txt
+. .venv/bin/activate
+python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.txt"
 ```
 
-PowerShell activation is `.venv\Scripts\Activate.ps1`. Commands below use
-`python3`; on Windows use `python` if that is the Python 3.11+ launcher.
-
-## Start the gateway and Web workbench
-
-The one `web` process owns USB, the `/v1` gateway, and the offline frontend.
-HTTP, USB hotplug discovery, `127.0.0.1:8443`, global `develop` mode, and
-authentication-free loopback access are the defaults. Requests whose actual
-TCP peer is not loopback still require a developer password or named Agent
-Token; `X-Forwarded-For` is never trusted for this decision.
+The Registry archive includes the Workbench source but excludes generated
+`node_modules` and `dist` directories. Build it once before starting the
+Gateway:
 
 ```bash
-python3 common_components/esp_iris/tools/esp_iris.py web
+cd "$ESP_IRIS_COMPONENT_DIR/tools/frontend"
+npm ci
+npm run build
+cd -
 ```
 
-Use `--require-local-auth` to require the existing authentication flow on
-loopback too. A fresh Gateway initializes the developer password to
-`espressif`, and the login page pre-fills it. Override the first-run value with
-`ESP_IRIS_DEVELOPER_PASSWORD` or `--password-file`, then change it from System
-Settings for any network that is not an isolated development LAN. The password
-is hashed in the gateway state database.
+Rebuild after changing frontend source. The Gateway displays a clear fallback
+page when `dist/index.html` is absent.
 
-Open `http://127.0.0.1:8443/`. Local access does not show a login page unless
-`--require-local-auth` was used. Use `/docs` for the interactive OpenAPI view
-and `/v1/openapi.json` for the JSON contract. `/v1/metrics` exposes the
-dependency-free metrics snapshot; WebSocket events use the versioned
-`esp-iris-event/v1` envelope and include correlation identifiers when they are
-available.
+## Evaluate without hardware
 
-To open the page from a Windows PC on the trusted local network, explicitly
-bind the Linux host to the LAN and use its IP address:
+Demo mode creates virtual normal/recovery devices and exercises logs, RPC/jobs,
+screen/input, media, OTA, restart, disconnect, and crash evidence:
 
 ```bash
-python3 common_components/esp_iris/tools/esp_iris.py web \
-  --listen 0.0.0.0 --port 8443
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web --demo
 ```
 
-Then browse to `http://LINUX_LAN_IP:8443/`. The `/docs` page and
-`/v1/openapi.json` follow the same local/remote authentication rule. HTTP does
-not encrypt the developer password, Agent token, logs, screen data, or device
-commands, so use it only on a trusted local network. Enable HTTPS with `--tls`
-to generate a local certificate, or provide an external certificate with
-`--tls-cert` and `--tls-key`; the gateway prints the generated certificate's
-SHA-256 fingerprint.
+Open `http://127.0.0.1:8443/`.
 
-For a fixed device port instead of automatic discovery:
+## Connect a device
+
+### Automatic application USB discovery
 
 ```bash
-python3 common_components/esp_iris/tools/esp_iris.py web \
-  --usb /dev/serial/by-id/usb-Espressif_ESP-Iris_Normal_...
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web
 ```
 
-For firmware built with the USB Serial/JTAG transport, select the fixed port
-explicitly. The host avoids an application-level DTR/RTS reset sequence and,
-on POSIX hosts, disables hang-up-on-close (`HUPCL`). The firmware also disables
-the USB peripheral's DTR/RTS reset function while Iris owns the channel:
+The default process discovers ESP-Iris application CDC devices, listens on
+`127.0.0.1:8443`, and serves both the API and Workbench.
+
+### Select an application USB port
 
 ```bash
-python3 common_components/esp_iris/tools/esp_iris.py web \
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web \
+  --usb /dev/serial/by-id/usb-Espressif_ESP-Iris_...
+```
+
+Application CDC0 carries framed ESP-Iris data, not a text console. Flash and
+monitor through a separate UART/Serial-JTAG interface or manually enter the ROM
+downloader when required.
+
+### Select USB Serial/JTAG
+
+```bash
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web \
   --usb-serial-jtag /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_...
 ```
 
-Automatic probing of Espressif USB Serial/JTAG ports is intentionally off
-because their fixed descriptors do not identify whether ESP-Iris firmware is
-running. Enable it explicitly with `--discover-usb-serial-jtag`; the normal
-ESP-Iris CDC0 discovery remains enabled by default.
+Automatic USB Serial/JTAG probing is intentionally disabled because its fixed
+descriptor does not identify the running firmware. Use the explicit option
+above or opt in with `--discover-usb-serial-jtag`. Stop the Gateway before
+flashing or monitoring through the same endpoint.
 
-## Demo and diagnostics
+### Connect raw TCP
 
-Demo mode never opens USB. It runs three clearly labeled virtual devices,
-including normal/recovery firmware, logs, RPC/jobs, mirror/input, OTA/restart,
-disconnect and crash evidence scenarios.
+The device application must first create its network interface. Then select its
+TCP endpoint in the Gateway/Workbench. Start with the
+[`tcp_wifi`](../examples/tcp_wifi/README.md) or
+[`tcp_pairing`](../examples/tcp_pairing/README.md) example.
 
-```bash
-python3 common_components/esp_iris/tools/esp_iris.py web --demo
-python3 common_components/esp_iris/tools/esp_iris.py doctor --json
-```
+## Access and authentication
 
-## Gateway-only CLI
-
-Developers and Agents use the same REST/WebSocket contract. Local loopback CLI
-calls need no credential by default. For a remote gateway, login saves a
-browser-style session in the selected CLI profile:
+Loopback clients are authentication-free by default. Use
+`--require-local-auth` to exercise the login flow locally:
 
 ```bash
-python3 common_components/esp_iris/tools/esp_iris.py ctl login
-python3 common_components/esp_iris/tools/esp_iris.py ctl devices
-python3 common_components/esp_iris/tools/esp_iris.py ctl status DEVICE_ID
-python3 common_components/esp_iris/tools/esp_iris.py ctl logs --device DEVICE_ID --follow
-python3 common_components/esp_iris/tools/esp_iris.py ctl rpc DEVICE_ID system.info --params '{}'
-python3 common_components/esp_iris/tools/esp_iris.py ctl rpc-raw DEVICE_ID 1 2 --payload '{}'
-python3 common_components/esp_iris/tools/esp_iris.py ctl console DEVICE_ID help
-python3 common_components/esp_iris/tools/esp_iris.py ctl console DEVICE_ID iris_info
-python3 common_components/esp_iris/tools/esp_iris.py ctl jobs DEVICE_ID 42
-python3 common_components/esp_iris/tools/esp_iris.py ctl cancel DEVICE_ID 42
-python3 common_components/esp_iris/tools/esp_iris.py ctl screenshot DEVICE_ID device.png
-python3 common_components/esp_iris/tools/esp_iris.py ctl mirror DEVICE_ID start --fps 5
-python3 common_components/esp_iris/tools/esp_iris.py ctl mirror DEVICE_ID stop
-python3 common_components/esp_iris/tools/esp_iris.py ctl restart DEVICE_ID
-python3 common_components/esp_iris/tools/esp_iris.py ctl factory DEVICE_ID
-python3 common_components/esp_iris/tools/esp_iris.py ctl firmware-add build/app.bin
-python3 common_components/esp_iris/tools/esp_iris.py ctl ota DEVICE_ID build/app.bin
-python3 common_components/esp_iris/tools/esp_iris.py ctl ota-status OPERATION_ID
-python3 common_components/esp_iris/tools/esp_iris.py ctl ota-watch OPERATION_ID
-python3 common_components/esp_iris/tools/esp_iris.py ctl mode observe
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web --require-local-auth
 ```
 
-Agents must use stable JSON output. A named token is required for a remote
-gateway or when `--require-local-auth` is active; never pass the token as a
-command argument:
+A new Gateway initializes the developer password to `espressif`. Override that
+first-run value with `ESP_IRIS_DEVELOPER_PASSWORD` or `--password-file`, then
+change it from System Settings. Do not expose the default password outside an
+isolated development environment.
+
+To serve a trusted development LAN explicitly:
 
 ```bash
-export ESP_IRIS_AGENT_TOKEN_FILE=/private/path/codex-bench-a.token
-python3 common_components/esp_iris/tools/esp_iris.py ctl --json devices
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web \
+  --listen 0.0.0.0 --port 8443
 ```
 
-Profiles store the URL, browser session, and optional CA path or TLS
-fingerprint. Use `ctl --profile lab-a --url http://192.168.1.20:8443 profile
---make-default` to configure the default LAN HTTP endpoint. For HTTPS, use an
-`https://` URL plus `--ca gateway.crt` or `--fingerprint`.
+Plain HTTP does not protect passwords, Agent Tokens, logs, media, or commands.
+Enable `--tls` for a generated local certificate, or provide `--tls-cert` and
+`--tls-key`. The Gateway prints the generated certificate SHA-256 fingerprint.
 
-Screenshots are normalized to real PNG/JPEG bytes at the Gateway, including
-RGB565/RGB888 screen backends. The Web workbench decodes raw screen-mirror
-scanline tiles onto a canvas instead of treating each tile as an encoded image.
-The screenshot path assembles the next complete frame from those same tiles. If
-screen mirroring is already active, the Gateway reuses it and leaves it active;
-otherwise it starts and stops a temporary mirror around one frame. Repeated
-mirror-start requests reuse the current stream, and the Web workbench adopts
-that running stream after a reused screenshot instead of exposing a stale local
-state. Screen media is centered in a 360 px-high surface without upscaling past
-its intrinsic dimensions. The USB reader consumes one blocking byte and then
-drains the available serial buffer in bulk; independent read/write locks let
-requests transmit immediately instead of waiting for that blocking read's
-200 ms timeout.
+Do not rely on `X-Forwarded-For` to turn a remote client into a loopback client;
+the Gateway authorizes the actual TCP peer.
 
-## Runtime model
+## Workbench pages
 
-- One stable `device_id` joins normal and recovery enumeration into one history.
-- Per-device writes are serialized; OTA/recovery holds the write lane.
-- `operation_id` is idempotent. Gateway restart never replays a write.
-- Observe mode blocks every business device request. Protocol housekeeping
-  and device-pushed logs/events continue; status is explicitly marked stale.
-- Device operations and system audit are separate. Code edits, builds and PC
-  shell activity are never added to the device timeline.
-- SQLite stores devices, sessions, operations, audit, token metadata and log
-  indexes. Compressed raw logs rotate at 7 days or 1 GiB. Structured evidence
-  and explicitly saved artifacts do not expire automatically.
-- SQLite schema changes are ordered migrations recorded in `PRAGMA
-  user_version`. Startup upgrades older databases transactionally and rejects
-  a database created by a newer Gateway instead of guessing at compatibility.
-- A new Web workbench connection receives the newest 3000 stored events before
-  switching to live delivery, so older retained history cannot hide current
-  device logs.
-- The normal template's line Console sends one bounded UTF-8 command through a
-  cataloged RPC, executes it serially on a dedicated device task, represents it
-  as an Iris Job, and returns output through the existing LOG stream. CDC0
-  remains exclusively framed ESP-Iris traffic and is never a raw text console.
-- OTA archives BIN, ELF and map together under the verified ELF SHA, validates
-  the ESP image structure, ESP32-S31 chip ID, project, version and binary SHA,
-  then immediately returns a durable operation ID. Recovery execution is the
-  default; application execution requires `--execution-mode application` and
-  recovery failure never silently falls back. `ota-status` and `ota-watch`
-  expose stages, device Job ID, byte counts and permille progress through both
-  recovery and normal-firmware reboots. Completion requires same-device
-  reconnect, a new boot ID, expected project/version and healthy acceptance.
-  Crash evidence is collected independently and is not attributed to OTA.
+| Page | Purpose |
+| --- | --- |
+| Overview | Device identity, connection, firmware, health, and current status |
+| Logs | Live and retained device logs |
+| Workspace | RPC, console, screen/input, media, firmware, OTA, and restart actions |
+| Operations | Durable long-running operation state and progress |
+| Records | Sessions, evidence, artifacts, and retained history |
+| Settings | Access mode, credentials, tokens, TLS, and system configuration |
 
-The repository-wide quality gates use the same direct commands locally and in
-`.gitlab-ci.yml`:
+The interactive OpenAPI view is available at `/docs`; the machine-readable
+contract is `/v1/openapi.json`; metrics are exposed at `/v1/metrics`.
+
+## Command-line client
+
+The `ctl` client talks to the same Gateway API as the Workbench:
+
+```bash
+IRIS="$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py"
+
+python "$IRIS" ctl devices
+python "$IRIS" ctl status DEVICE_ID
+python "$IRIS" ctl logs --device DEVICE_ID --follow
+python "$IRIS" ctl rpc DEVICE_ID system.info --params '{}'
+python "$IRIS" ctl jobs DEVICE_ID JOB_ID
+python "$IRIS" ctl cancel DEVICE_ID JOB_ID
+python "$IRIS" ctl screenshot DEVICE_ID device.png
+python "$IRIS" ctl mirror DEVICE_ID start --fps 5
+python "$IRIS" ctl mirror DEVICE_ID stop
+python "$IRIS" ctl restart DEVICE_ID
+python "$IRIS" ctl firmware-add build/app.bin
+python "$IRIS" ctl ota DEVICE_ID build/app.bin
+python "$IRIS" ctl ota-status OPERATION_ID
+python "$IRIS" ctl ota-watch OPERATION_ID
+python "$IRIS" ctl mode observe
+```
+
+Use `ctl --json` for stable machine-readable output. A remote Gateway or local
+Gateway started with `--require-local-auth` requires a login or named Agent
+Token. Pass Agent Tokens through a protected file rather than a command-line
+argument:
+
+```bash
+export ESP_IRIS_AGENT_TOKEN_FILE=/private/path/agent.token
+python "$IRIS" ctl --json devices
+```
+
+Profiles store the Gateway URL, browser-style session, optional CA path, and
+optional certificate fingerprint. Configure a profile with:
+
+```bash
+python "$IRIS" ctl --profile lab-a \
+  --url https://192.0.2.10:8443 --ca gateway.crt profile --make-default
+```
+
+## Runtime and storage model
+
+- A stable `device_id` joins normal and recovery firmware into one device
+  history; `boot_id` identifies a boot and `session_id` identifies a link.
+- Device writes are serialized. OTA/recovery holds the device write lane.
+- `operation_id` makes long-running Gateway operations queryable and
+  idempotent; Gateway restart does not replay device writes.
+- Observe mode blocks business device requests while protocol housekeeping and
+  device-pushed events continue.
+- SQLite stores devices, sessions, operations, audit, token metadata, and log
+  indexes. Raw logs rotate; explicitly saved artifacts and structured evidence
+  remain durable.
+- A new Workbench connection receives recent stored events before live events,
+  preserving continuity across page reloads.
+
+## Troubleshooting
+
+### The Workbench says the frontend is not built
+
+Run `npm ci && npm run build` in `tools/frontend`, then restart the Gateway.
+
+### Opening USB resets or disconnects the board
+
+Confirm that firmware and Gateway use the same transport. For USB Serial/JTAG,
+disable the ESP-IDF USB Serial/JTAG console and do not let flashing/monitoring
+tools own the endpoint concurrently. For application CDC0, use a separate
+programming interface.
+
+### TCP never becomes reachable
+
+ESP-Iris does not provision Wi-Fi or create a product network interface. Verify
+that the application connected, obtained an address, and permits inbound TCP
+on the configured port. Use the TCP examples as known-good references.
+
+### Pairing fails
+
+Verify that the device and private Gateway token store contain the same
+64-character lowercase hexadecimal token. Never print the token in logs. A
+device with an existing NVS token ignores a newly supplied example default
+until it is explicitly rotated or reprovisioned.
+
+### Diagnose the local installation
+
+```bash
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" doctor --json
+```
+
+## Development and tests
+
+From the repository root:
 
 ```bash
 python3 -m pip install -r components/esp_iris/tools/requirements-dev.txt
 cd components/esp_iris/tools
-python3 -m ruff check --select E9,F63,F7,F82 iris_gateway tests
-python3 -m pytest -q
+python3 -m ruff check iris_gateway tests
+python3 -m pytest
 
 cd frontend
 npm ci
 npm run test:unit
 npm run build
-
-cd ../../../..
-idf.py -C examples/esp_iris_minimal -B build-ci-tcp build
-idf.py -C examples/esp_iris_minimal -B build-ci-usb \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
-idf.py -C examples/esp_iris_minimal -B build-ci-usj \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
-idf.py -C examples/esp_iris_tcp_wifi -B build-ci build
-idf.py -C examples/esp_iris_tcp_pairing -B build-ci build
-idf.py -C examples/esp_iris_rpc_jobs -B build-ci build
-idf.py -C examples/esp_iris_display_input -B build-ci build
-idf.py -C examples/esp_iris_media_streams -B build-ci build
-idf.py -C examples/esp_iris_ota -B build-ci-recovery \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
-idf.py -C examples/esp_iris_ota -B build-ci-a build
-idf.py -C examples/esp_iris_ota -B build-ci-b \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
-idf.py -C examples/esp_iris_ota -B build-ci-rollback \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
-idf.py -C examples/esp_iris_ota -B build-ci-application \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
 ```
 
-Python module and contract tests, frontend unit tests/build, all minimal
-firmware transports, and all P0/P1 examples fail closed. Firmware compilation
-requires an initialized ESP-IDF shell or a GitLab runner tagged `esp-idf`.
+Firmware examples are under [`../examples`](../examples/README.md). Build them
+from the repository root with paths such as:
+
+```bash
+idf.py -C components/esp_iris/examples/minimal -B build-ci-tcp build
+idf.py -C components/esp_iris/examples/rpc_jobs -B build-ci build
+```
+
+See the [component README](../README.md), [Chinese README](../README_zh.md), and
+[wire protocol](../protocol/spec.md) for the device-side integration contract.

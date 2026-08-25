@@ -58,7 +58,6 @@ class ControlType(enum.IntEnum):
 
 class EventType(enum.IntEnum):
     BOOT = 0x01
-    SERVICES_READY = 0x02
     HEALTHY = 0x03
     PLANNED_RESTART = 0x04
     LINK_READY = 0x05

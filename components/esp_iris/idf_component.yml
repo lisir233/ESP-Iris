@@ -1,9 +1,39 @@
 version: "0.1.0"
-description: Low-overhead ESP-Iris binary device link
+description: Low-overhead ESP-Iris binary observability and control link
 license: Apache-2.0
+maintainers:
+  - Li Shenhang <lishenhang@espressif.com>
+tags:
+  - debugging
+  - observability
+  - usb
+  - tcp
+  - ota
+url: https://github.com/lisir233/ESP-Iris
+repository: https://github.com/lisir233/ESP-Iris.git
+repository_info:
+  path: components/esp_iris
+documentation: https://github.com/lisir233/ESP-Iris/tree/master/components/esp_iris
+issues: https://github.com/lisir233/ESP-Iris/issues
+changelog: https://github.com/lisir233/ESP-Iris/blob/master/components/esp_iris/CHANGELOG.md
+
+files:
+  exclude:
+    - agent/**/*
+    - test_apps/**/*
+    - tools/**/node_modules/**/*
+    - tools/**/.mypy_cache/**/*
+    - tools/**/.pytest_cache/**/*
+    - tools/**/.ruff_cache/**/*
+    - tools/**/test-results/**/*
+    - tools/**/playwright-report/**/*
+    - examples/**/sdkconfig.local.defaults
 
 dependencies:
   idf: ">=5.5"
 
   espressif/esp_tinyusb:
-    version: "2.2.1"
+    version: ">=2.2.1,<3.0.0"
+    require: private
+    rules:
+      - if: target == esp32s31

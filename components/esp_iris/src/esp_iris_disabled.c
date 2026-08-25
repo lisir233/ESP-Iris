@@ -31,11 +31,6 @@ esp_err_t esp_iris_mark_healthy(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-esp_err_t esp_iris_mark_services_ready(void)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
 esp_err_t esp_iris_mark_planned_restart(void)
 {
     return ESP_ERR_NOT_SUPPORTED;

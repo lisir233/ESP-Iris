@@ -23,11 +23,23 @@ else()
     )
 endif()
 
+set(ESP_IRIS_PRIV_REQUIRES
+    esp_partition
+    espcoredump
+    mbedtls
+)
+if(CONFIG_ESP_IRIS_TRANSPORT_USB)
+    list(APPEND ESP_IRIS_PRIV_REQUIRES esp_tinyusb)
+elseif(CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
+    list(APPEND ESP_IRIS_PRIV_REQUIRES esp_driver_usb_serial_jtag)
+else()
+    list(APPEND ESP_IRIS_PRIV_REQUIRES esp_netif lwip)
+endif()
+
 idf_component_register(
     SRCS ${ESP_IRIS_SRCS}
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES app_update esp_app_format esp_system esp_timer nvs_flash vfs
-    PRIV_REQUIRES esp_driver_usb_serial_jtag esp_netif esp_partition esp_tinyusb
-                  espcoredump lwip mbedtls
+    PRIV_REQUIRES ${ESP_IRIS_PRIV_REQUIRES}
 )

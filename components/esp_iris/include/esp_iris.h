@@ -119,9 +119,8 @@ esp_err_t esp_iris_stop(void);
 bool esp_iris_is_started(void);
 esp_err_t esp_iris_get_status(esp_iris_status_t *out_status);
 
-/* Optional product lifecycle markers. State is replayed to a newly connected
+/* Optional product lifecycle marker. State is replayed to a newly connected
  * PC session, so callers do not need to wait for a link. */
-esp_err_t esp_iris_mark_services_ready(void);
 esp_err_t esp_iris_mark_planned_restart(void);
 
 /* Product recovery glue may provide strong platform hook implementations.

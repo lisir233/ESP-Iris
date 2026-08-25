@@ -33,28 +33,28 @@ esp32s31-examples:
   tags:
     - esp-idf
   script:
-    - idf.py -C examples/esp_iris_minimal -B build-ci-tcp build
-    - idf.py -C examples/esp_iris_minimal -B build-ci-usb -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
-    - idf.py -C examples/esp_iris_tcp_wifi -B build-ci build
-    - idf.py -C examples/esp_iris_tcp_pairing -B build-ci build
-    - idf.py -C examples/esp_iris_rpc_jobs -B build-ci build
-    - idf.py -C examples/esp_iris_display_input -B build-ci build
-    - idf.py -C examples/esp_iris_media_streams -B build-ci build
-    - idf.py -C examples/esp_iris_ota -B build-ci-recovery -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
-    - idf.py -C examples/esp_iris_ota -B build-ci-a build
-    - idf.py -C examples/esp_iris_ota -B build-ci-b -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
-    - idf.py -C examples/esp_iris_ota -B build-ci-rollback -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
-    - idf.py -C examples/esp_iris_ota -B build-ci-application -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
+    - idf.py -C components/esp_iris/examples/minimal -B build-ci-tcp build
+    - idf.py -C components/esp_iris/examples/minimal -B build-ci-usb -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
+    - idf.py -C components/esp_iris/examples/tcp_wifi -B build-ci build
+    - idf.py -C components/esp_iris/examples/tcp_pairing -B build-ci build
+    - idf.py -C components/esp_iris/examples/rpc_jobs -B build-ci build
+    - idf.py -C components/esp_iris/examples/display_input -B build-ci build
+    - idf.py -C components/esp_iris/examples/media_streams -B build-ci build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-recovery -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-a build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-b -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-rollback -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-application -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
   artifacts:
     when: always
     paths:
-      - examples/esp_iris_minimal/build-ci-*/*.bin
-      - examples/esp_iris_minimal/build-ci-*/*.elf
-      - examples/esp_iris_minimal/build-ci-*/*.map
-      - examples/esp_iris_*/build-ci/*.bin
-      - examples/esp_iris_*/build-ci/*.elf
-      - examples/esp_iris_*/build-ci/*.map
-      - examples/esp_iris_ota/build-ci-*/*.bin
-      - examples/esp_iris_ota/build-ci-*/*.elf
-      - examples/esp_iris_ota/build-ci-*/*.map
+      - components/esp_iris/examples/minimal/build-ci-*/*.bin
+      - components/esp_iris/examples/minimal/build-ci-*/*.elf
+      - components/esp_iris/examples/minimal/build-ci-*/*.map
+      - components/esp_iris/examples/*/build-ci/*.bin
+      - components/esp_iris/examples/*/build-ci/*.elf
+      - components/esp_iris/examples/*/build-ci/*.map
+      - components/esp_iris/examples/ota/build-ci-*/*.bin
+      - components/esp_iris/examples/ota/build-ci-*/*.elf
+      - components/esp_iris/examples/ota/build-ci-*/*.map
     expire_in: 14 days

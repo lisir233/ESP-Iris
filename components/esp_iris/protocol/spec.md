@@ -77,11 +77,11 @@ Consumers compare `boot_id` to detect a real boot and `session_id` to detect a
 new physical link session.
 
 After HELLO_ACK, replay order is BOOT, LINK_READY, optional
-PREVIOUS_BOOT_CRASH, optional CORE_DUMP_AVAILABLE, optional SERVICES_READY and
-optional HEALTHY. `esp_iris_mark_services_ready()` and
-`esp_iris_mark_healthy()` update replayable lifecycle state. A planned
-restart event records local intent; products with crash-loop recovery override
-`esp_iris_platform_mark_planned_restart()` to persist that intent.
+PREVIOUS_BOOT_CRASH, optional CORE_DUMP_AVAILABLE and optional HEALTHY.
+`esp_iris_mark_healthy()` updates replayable lifecycle state. A planned restart
+event records local intent; products with crash-loop recovery override
+`esp_iris_platform_mark_planned_restart()` to persist that intent. Event type
+`0x02` is reserved and must not be reinterpreted.
 
 Implemented control types:
 

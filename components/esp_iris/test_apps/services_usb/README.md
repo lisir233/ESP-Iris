@@ -8,6 +8,6 @@ Mosaico High-Speed CDC0 link. It registers deterministic service data:
 - IMAGE streaming submits a four-byte synthetic JPEG while enabled.
 
 It uses the same factory-only partition and MMU profile as
-`example/esp_iris_minimal`, so it can be temporarily written with `app-flash`
+`examples/minimal`, so it can be temporarily written with `app-flash`
 without changing the partition table, NVS or retained evidence. Restore the
 minimal/product application after the service test.

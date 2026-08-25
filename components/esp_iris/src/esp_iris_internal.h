@@ -53,7 +53,6 @@ typedef struct iris_runtime {
     bool stdio_redirected;
     bool link_connected;
     bool hello_acked;
-    bool services_ready;
     bool healthy;
     bool previous_boot_crash;
     bool core_dump_present;

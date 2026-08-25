@@ -232,9 +232,6 @@ static void schedule_session_events(iris_runtime_t *runtime)
     if (runtime->core_dump_present) {
         schedule_event(runtime, ESP_IRIS_EVENT_CORE_DUMP_AVAILABLE);
     }
-    if (runtime->services_ready) {
-        schedule_event(runtime, ESP_IRIS_EVENT_SERVICES_READY);
-    }
     if (runtime->healthy) {
         schedule_event(runtime, ESP_IRIS_EVENT_HEALTHY);
     }
@@ -247,7 +244,6 @@ static uint8_t next_pending_event(iris_runtime_t *runtime)
         ESP_IRIS_EVENT_LINK_READY,
         ESP_IRIS_EVENT_PREVIOUS_BOOT_CRASH,
         ESP_IRIS_EVENT_CORE_DUMP_AVAILABLE,
-        ESP_IRIS_EVENT_SERVICES_READY,
         ESP_IRIS_EVENT_HEALTHY,
         ESP_IRIS_EVENT_PLANNED_RESTART,
         ESP_IRIS_EVENT_RECOVERY_ENTERED,
@@ -931,20 +927,6 @@ esp_err_t esp_iris_get_status(esp_iris_status_t *out_status)
     };
     memcpy(out_status->device_id, g_iris.device_id,
            sizeof(out_status->device_id));
-    return ESP_OK;
-}
-
-esp_err_t esp_iris_mark_services_ready(void)
-{
-    if (!g_iris.started) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (!g_iris.services_ready) {
-        g_iris.services_ready = true;
-        if (g_iris.hello_acked) {
-            schedule_event(&g_iris, ESP_IRIS_EVENT_SERVICES_READY);
-        }
-    }
     return ESP_OK;
 }
 

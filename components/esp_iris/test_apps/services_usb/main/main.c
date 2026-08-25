@@ -83,6 +83,5 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_iris_rpc_register(1, 1, echo_rpc, NULL));
     ESP_ERROR_CHECK(esp_iris_screen_register(&screen));
     ESP_ERROR_CHECK(esp_iris_start());
-    ESP_ERROR_CHECK(esp_iris_mark_services_ready());
     xTaskCreate(media_task, "iris_media_test", 2048, NULL, 4, NULL);
 }

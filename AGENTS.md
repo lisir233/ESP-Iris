@@ -2,14 +2,14 @@
 
 ## Project Structure & Module Organization
 
-`components/esp_iris/` contains the ESP-IDF component. Public headers live in `include/`, implementation files in `src/`, and the wire contract and test vectors in `protocol/`. Host tooling is under `components/esp_iris/tools/`: `iris_gateway/` is the Python gateway, `tests/` contains pytest coverage, and `frontend/` is the React/Vite workbench. Hardware-oriented fixture projects live in `components/esp_iris/test_apps/`. Use `examples/esp_iris_minimal/` for normal integration and smoke builds. Treat `build*/`, `managed_components/`, `node_modules/`, caches, and generated `sdkconfig` files as generated artifacts; do not hand-edit them.
+`components/esp_iris/` contains the ESP-IDF component. Public headers live in `include/`, implementation files in `src/`, and the wire contract and test vectors in `protocol/`. Host tooling is under `components/esp_iris/tools/`: `iris_gateway/` is the Python gateway, `tests/` contains pytest coverage, and `frontend/` is the React/Vite workbench. Public Registry examples live in `components/esp_iris/examples/`; hardware-oriented fixtures live in `components/esp_iris/test_apps/`. Use `components/esp_iris/examples/minimal/` for normal integration and smoke builds. Treat `build*/`, `managed_components/`, `node_modules/`, caches, and generated `sdkconfig` files as generated artifacts; do not hand-edit them.
 
 ## Build, Test, and Development Commands
 
 Run ESP-IDF commands from an initialized ESP-IDF shell:
 
 ```bash
-cd examples/esp_iris_minimal && idf.py build
+cd components/esp_iris/examples/minimal && idf.py build
 idf.py -p /dev/serial/by-id/<device> flash
 ```
 
