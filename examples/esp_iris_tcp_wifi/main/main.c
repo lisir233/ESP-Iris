@@ -1,16 +1,12 @@
-#include <inttypes.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "esp_check.h"
 #include "esp_event.h"
-#include "esp_iris.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_rom_sys.h"
 #include "esp_wifi.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "iris_example.h"
 
 static const char *TAG = "iris_tcp_wifi";
 
@@ -90,23 +86,9 @@ void app_main(void)
     /* Iris owns its TCP server, while this application owns Wi-Fi. Starting
      * Iris first demonstrates that the INADDR_ANY listener remains usable
      * when the product creates its network interface later. */
-    ESP_ERROR_CHECK(esp_iris_start());
-
-    char device_id[33];
-    ESP_ERROR_CHECK(esp_iris_format_device_id(device_id));
-    ESP_LOGI(TAG, "Iris started before Wi-Fi: device_id=%s port=%d",
-             device_id, CONFIG_ESP_IRIS_TCP_PORT);
+    iris_example_start();
 
     ESP_ERROR_CHECK(wifi_start());
-    ESP_ERROR_CHECK(esp_iris_mark_services_ready());
-
-    while (true) {
-        esp_iris_status_t status;
-        ESP_ERROR_CHECK(esp_iris_get_status(&status));
-        ESP_LOGI(TAG, "status link=%d session=%d uptime_us=%" PRIu64
-                      " rx=%" PRIu32 " tx=%" PRIu32,
-                 status.link_connected, status.session_ready,
-                 status.uptime_us, status.rx_frames, status.tx_frames);
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
+    iris_example_mark_services_ready();
+    iris_example_monitor();
 }
