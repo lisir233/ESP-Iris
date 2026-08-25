@@ -38,7 +38,7 @@ export function useGateway() {
       setDemo(deviceData.demo);
       setOperations(operationData.operations);
       setAudits(auditData.audits);
-      setSelectedId((current) => current || deviceData.devices[0]?.device_id || "");
+      setSelectedId((current) => deviceData.devices.some((device) => device.device_id === current) ? current : deviceData.devices[0]?.device_id || "");
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -118,6 +118,11 @@ export function useGateway() {
     await refresh();
   }, [refresh]);
 
+  const removeDevice = useCallback(async (deviceId: string) => {
+    await api<{ removed: boolean }>(`/v1/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+    await refresh();
+  }, [refresh]);
+
   return {
     auth,
     setAuth,
@@ -135,5 +140,6 @@ export function useGateway() {
     error,
     refresh,
     refreshStatus,
+    removeDevice,
   };
 }

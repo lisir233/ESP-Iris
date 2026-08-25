@@ -168,4 +168,4 @@ class AuthManager:
             )
 
 
-__all__ = ["Actor", "AuthManager", "DEFAULT_DEVELOPER_PASSWORD"]
+__all__ = ["DEFAULT_DEVELOPER_PASSWORD", "Actor", "AuthManager"]

@@ -9,10 +9,10 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .security import Actor
-from .store import GatewayStore
 from .observability import MetricsRegistry
+from .security import Actor
 from .state_machine import TERMINAL_OPERATION_STATES, operation_transition
+from .store import GatewayStore
 
 
 class OperationCancelled(RuntimeError):

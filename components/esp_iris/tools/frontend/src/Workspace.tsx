@@ -1,6 +1,7 @@
 import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { api, formatBytes, formatDuration, formatTime } from "./api";
+import { api, formatBytes, formatTime } from "./api";
 import LogsPanel from "./LogsPanel";
+import { firmwareModeLabel } from "./Shell";
 import type { Device, DeviceStatus, GatewayEvent, Operation } from "./types";
 
 type Props = {
@@ -10,15 +11,19 @@ type Props = {
   operations: Operation[];
   events: GatewayEvent[];
   refresh: () => Promise<void>;
+  onOpenRecords: () => void;
 };
 
 type Dialog = "rpc" | "raw" | "restart" | "factory" | "ota" | "job" | null;
+type RpcMethod = { name: string; service_id: number; method_id: number; timeout_ms: number };
 
-export default function Workspace({ device, status, mode, operations, events, refresh }: Props) {
+export default function Workspace({ device, status, mode, operations, events, refresh, onOpenRecords }: Props) {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [rpcParams, setRpcParams] = useState("{}");
+  const [rpcMethods, setRpcMethods] = useState<RpcMethod[]>([]);
+  const [rpcMethod, setRpcMethod] = useState("system.info");
   const [rawIds, setRawIds] = useState({ service: "1", method: "1", payload: "" });
   const [jobId, setJobId] = useState("1");
   const [otaFiles, setOtaFiles] = useState<{ bin: File | null; elf: File | null; map: File | null }>({ bin: null, elf: null, map: null });
@@ -26,6 +31,14 @@ export default function Workspace({ device, status, mode, operations, events, re
   const [consoleOpen, setConsoleOpen] = useState(false);
   const deviceOperations = operations.filter((item) => item.device_id === device?.device_id);
   const disabled = mode === "observe" || !device?.connected;
+
+  useEffect(() => {
+    api<{ methods?: RpcMethod[] }>("/v1/rpc-catalog").then((value) => {
+      const methods = value.methods || [];
+      setRpcMethods(methods);
+      if (methods.length) setRpcMethod((current) => methods.some((method) => method.name === current) ? current : methods[0].name);
+    }).catch(() => setRpcMethods([]));
+  }, []);
 
   async function call(path: string, init: RequestInit, success: string) {
     if (!device) return;
@@ -72,7 +85,14 @@ export default function Workspace({ device, status, mode, operations, events, re
     if (!device) return;
     const id = encodeURIComponent(device.device_id);
     if (dialog === "rpc") {
-      call(`/v1/devices/${id}/rpc/system.info`, { method: "POST", body: JSON.stringify({ params: JSON.parse(rpcParams) }), headers: { "Content-Type": "application/json" } }, "RPC 已完成");
+      let params: unknown;
+      try {
+        params = JSON.parse(rpcParams);
+      } catch {
+        setNotice("RPC 参数必须是有效 JSON");
+        return;
+      }
+      call(`/v1/devices/${id}/rpc/${encodeURIComponent(rpcMethod)}`, { method: "POST", body: JSON.stringify({ params }), headers: { "Content-Type": "application/json" } }, "RPC 已完成");
     } else if (dialog === "raw") {
       call(`/v1/devices/${id}/rpc/raw`, { method: "POST", body: JSON.stringify({ service_id: Number(rawIds.service), method_id: Number(rawIds.method), payload_text: rawIds.payload }), headers: { "Content-Type": "application/json" } }, "原始 RPC 已完成");
     } else if (dialog === "restart") {
@@ -88,41 +108,39 @@ export default function Workspace({ device, status, mode, operations, events, re
 
   if (!device) return <div className="workspace-empty"><strong>等待设备</strong><span>连接 ESP-Iris Normal 或启动 --demo</span></div>;
 
+  const activeOperation = deviceOperations.find((operation) => !["succeeded", "failed", "cancelled", "interrupted", "outcome_unknown"].includes(operation.status));
+
   return (
     <div className="workspace-page">
       <section className="workspace-main">
         <div className="device-heading">
-          <div><p className="eyebrow">DEVICE WORKSPACE / {device.firmware_mode?.toUpperCase()}</p><h1>{device.alias || device.suggested_alias || device.device_id}</h1><span className="mono-id">{device.device_id}</span></div>
-          <div className="heading-status"><span className={`connection-label ${device.connected ? "connected" : ""}`}><i className="status-dot online" />{device.connected ? "已连接" : "离线"}</span><span>{device.transport_name || "USB Highspeed"}</span><span>BOOT {device.boot_id ?? "—"}</span></div>
+          <div><h1>{device.alias || device.suggested_alias || device.device_id.slice(0, 12)}</h1><span className="mono-id">{device.device_id}</span></div>
+          <div className="heading-status"><span className={`connection-label ${device.connected ? "connected" : ""}`}><i className={`status-dot ${device.connected ? "online" : "offline"}`} />{device.connected ? "已连接" : "离线"}</span><span>{device.project_name || "项目未知"} {device.app_version || ""}</span><span>{device.transport_name || device.endpoint || "传输未知"}</span><span>{firmwareModeLabel(device.firmware_mode)}</span></div>
         </div>
         {mode === "observe" && <div className="observe-banner"><strong>观察模式</strong><span>所有业务设备请求已停止；以下显示缓存状态和设备主动上报。</span></div>}
         {status?.stale && <div className="stale-flag">缓存状态 · 数据可能已过期</div>}
         <div className="metric-strip">
           <Metric label="运行时间" value={status?.uptime_us ? `${(status.uptime_us / 1e6).toFixed(0)} s` : "—"} />
           <Metric label="可用内部堆" value={formatBytes(status?.free_internal)} detail={`最低 ${formatBytes(status?.min_free_internal)}`} />
-          <Metric label="堆占用" value={formatBytes(status?.heap_used)} detail={`/ ${formatBytes(status?.heap_total)}`} />
-          <Metric label="生命周期" value={status?.lifecycle_state || "—"} />
           <Metric label="日志丢失" value={formatBytes(status?.log_dropped_bytes)} tone={status?.log_dropped_bytes ? "warn" : "good"} />
           <Metric label="时钟误差" value={status?.clock_uncertainty_us != null ? `±${status.clock_uncertainty_us.toFixed(0)} µs` : "—"} />
+          <details className="device-details"><summary>设备信息</summary><dl><dt>生命周期</dt><dd>{formatLifecycle(status?.lifecycle_state)}</dd><dt>堆占用</dt><dd>{formatBytes(status?.heap_used)} / {formatBytes(status?.heap_total)}</dd><dt>Boot ID</dt><dd>{device.boot_id ?? "—"}</dd><dt>设备能力</dt><dd>{device.capability_names?.join(" · ") || "—"}</dd></dl></details>
         </div>
         <div className="action-bar">
-          <span>设备控制</span>
-          <button disabled={disabled} onClick={() => setDialog("rpc")}>RPC Catalog</button>
-          <button disabled={disabled} onClick={() => setDialog("raw")}>原始 RPC</button>
+          <button className="primary-button" disabled={disabled || busy} onClick={() => call(`/v1/devices/${encodeURIComponent(device.device_id)}/rpc/system.info`, { method: "POST", body: JSON.stringify({ params: {} }), headers: { "Content-Type": "application/json" } }, "系统信息已读取")}>读取系统信息</button>
+          <button disabled={disabled} onClick={() => setDialog("rpc")}>调用 RPC…</button>
           <button disabled={disabled} onClick={() => setConsoleOpen(true)}>逐行 Console</button>
-          <button disabled={disabled} onClick={() => setDialog("job")}>取消 Job</button>
-          <button disabled={disabled} onClick={() => setDialog("ota")}>OTA</button>
-          <button className="danger-outline" disabled={disabled} onClick={() => setDialog("factory")}>Factory</button>
-          <button className="danger-outline" disabled={disabled} onClick={() => setDialog("restart")}>重启</button>
           <span className="queue-info">队列 {status?.queue?.queued.length ?? 0} · 运行 {status?.queue?.running.length ?? 0}</span>
+          <details className="advanced-actions"><summary>更多操作</summary><div><button disabled={disabled} onClick={() => setDialog("raw")}>原始 RPC</button><button disabled={disabled} onClick={() => setDialog("job")}>取消 Job</button><button disabled={disabled} onClick={() => setDialog("ota")}>OTA 更新</button><button className="danger-outline" disabled={disabled} onClick={() => setDialog("factory")}>Factory Recovery</button><button className="danger-outline" disabled={disabled} onClick={() => setDialog("restart")}>重启设备</button></div></details>
         </div>
         {notice && <div className="inline-notice">{notice}</div>}
+        {activeOperation && <div className="active-operation"><span>当前操作</span><strong>{actionLabel(activeOperation.action)}</strong><em className={`op-status ${activeOperation.status}`}>{activeOperation.status}</em>{activeOperation.progress && <progress max={1000} value={activeOperation.progress.progress_permille} />}</div>}
         <DeviceScreen device={device} mode={mode} events={events} />
+        <RecentOperations operations={deviceOperations} onOpenRecords={onOpenRecords} />
+        <details className="logs-disclosure" open><summary>设备日志 <span>{events.filter((item) => item.category === "log" && item.device_id === device.device_id).length} 条</span></summary><LogsPanel events={events} deviceId={device.device_id} compact /></details>
       </section>
-      <OperationTimeline operations={deviceOperations} />
-      <LogsPanel events={events} deviceId={device.device_id} />
       {consoleOpen && <ConsoleDialog deviceId={device.device_id} events={events} onClose={() => setConsoleOpen(false)} />}
-      {dialog && <ActionDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={submitDialog} rpcParams={rpcParams} setRpcParams={setRpcParams} rawIds={rawIds} setRawIds={setRawIds} jobId={jobId} setJobId={setJobId} otaFiles={otaFiles} setOtaFiles={setOtaFiles} otaExecutionMode={otaExecutionMode} setOtaExecutionMode={setOtaExecutionMode} />}
+      {dialog && <ActionDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={submitDialog} rpcParams={rpcParams} setRpcParams={setRpcParams} rpcMethods={rpcMethods} rpcMethod={rpcMethod} setRpcMethod={setRpcMethod} rawIds={rawIds} setRawIds={setRawIds} jobId={jobId} setJobId={setJobId} otaFiles={otaFiles} setOtaFiles={setOtaFiles} otaExecutionMode={otaExecutionMode} setOtaExecutionMode={setOtaExecutionMode} />}
     </div>
   );
 }
@@ -131,26 +149,14 @@ function Metric({ label, value, detail, tone }: { label: string; value: string; 
   return <div className="metric-cell"><span>{label}</span><strong className={tone}>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }
 
-function OperationTimeline({ operations }: { operations: Operation[] }) {
-  return (
-    <aside className="operation-timeline">
-      <div className="panel-title"><span>设备操作时间线</span><small>{operations.length} 条</small></div>
-      <div className="timeline-scroll">
-        {operations.map((operation) => (
-          <article className="timeline-item" key={operation.operation_id}>
-            <i className={`timeline-node ${operation.status}`} />
-            <div className="timeline-head"><strong>{actionLabel(operation.action)}</strong><time>{formatTime(operation.created_ns)}</time></div>
-            <div className="actor-row"><span className={`actor ${operation.actor_type}`}>{operation.actor_type === "agent" ? "AGENT" : "DEV"}</span><span>{operation.actor_name}</span><em className={`op-status ${operation.status}`}>{operation.status}</em></div>
-            <code>{compactParams(operation.params)}</code>
-            {operation.progress && <div className="operation-progress"><progress max={1000} value={operation.progress.progress_permille} /><span>{operation.progress.stage} · {(operation.progress.progress_permille / 10).toFixed(1)}%{operation.progress.bytes_total ? ` · ${formatBytes(operation.progress.bytes_received)} / ${formatBytes(operation.progress.bytes_total)}` : ""}</span></div>}
-            <footer><span>{formatDuration(operation.started_ns, operation.finished_ns)}</span><span>{operation.queue_position ? `队列 #${operation.queue_position}` : "已送达"}</span></footer>
-            {operation.error && <p className="operation-error">{operation.error}</p>}
-          </article>
-        ))}
-        {!operations.length && <p className="empty-state">尚无设备操作</p>}
-      </div>
-    </aside>
-  );
+function RecentOperations({ operations, onOpenRecords }: { operations: Operation[]; onOpenRecords: () => void }) {
+  const recent = operations.slice(0, 3);
+  return <section className="recent-operations"><header><h2>最近操作</h2><button onClick={onOpenRecords}>查看全部</button></header>{recent.length ? <div className="recent-list">{recent.map((operation) => <button key={operation.operation_id} onClick={onOpenRecords}><strong>{actionLabel(operation.action)}</strong><span>{operation.actor_name}</span><em className={`op-status ${operation.status}`}>{operation.status}</em><time>{formatTime(operation.created_ns)}</time></button>)}</div> : <p className="compact-empty">尚无设备操作</p>}</section>;
+}
+
+function formatLifecycle(value?: string) {
+  const labels: Record<string, string> = { "0": "已停止", "1": "启动中", "2": "运行中", "3": "停止中", "4": "失败", stopped: "已停止", starting: "启动中", running: "运行中", stopping: "停止中", failed: "失败", recovery: "恢复模式" };
+  return value == null ? "—" : labels[String(value)] || `未知（${value}）`;
 }
 
 function DeviceScreen({ device, mode, events }: { device: Device; mode: "develop" | "observe"; events: GatewayEvent[] }) {
@@ -283,11 +289,11 @@ function DeviceScreen({ device, mode, events }: { device: Device; mode: "develop
 
   return (
     <section className="screen-pane">
-      <div className="panel-title"><span>设备画面</span><small>{screenBusy ? "处理中…" : mirroring ? "LIVE" : "未启动"}</small><div><button disabled={mode === "observe" || screenBusy} onClick={captureScreenshot}>PNG 截图</button><button disabled={mode === "observe" || screenBusy} onClick={toggleMirror}>{mirroring ? "停止镜像" : "启动镜像"}</button><button disabled={mode === "observe"} className={inputEnabled ? "active-control" : ""} onClick={() => setInputEnabled((value) => !value)}>交互输入</button></div></div>
+      <div className="panel-title"><span>设备画面</span><small>{screenBusy ? "处理中…" : mirroring ? "镜像中" : "未启动"}</small><div><button disabled={mode === "observe" || screenBusy} onClick={captureScreenshot}>截图</button><button disabled={mode === "observe" || screenBusy} onClick={toggleMirror}>{mirroring ? "停止镜像" : "启动镜像"}</button><button disabled={mode === "observe"} className={inputEnabled ? "active-control" : ""} onClick={() => setInputEnabled((value) => !value)}>交互输入</button></div></div>
       {screenNotice && <div className="inline-notice">{screenNotice}</div>}
       <div className={`screen-surface ${inputEnabled ? "input-enabled" : ""}`} onPointerDown={(event) => { if (inputEnabled) { const begin = point(event); if (begin) { event.currentTarget.setPointerCapture(event.pointerId); gesture.current = { begin, moves: [] }; } } }} onPointerMove={(event) => { if (gesture.current) { const move = point(event, true); if (move) gesture.current.moves.push(move); } }} onPointerUp={pointerUp} onPointerCancel={() => { gesture.current = null; }}>
         <canvas ref={screenCanvas} className={mirroring && streamKind === "raw" ? "" : "hidden"} aria-label="设备实时画面" />
-        {streamKind !== "raw" && image ? <img ref={screenImage} src={image} alt="设备实时画面" /> : streamKind !== "raw" && <div className="screen-placeholder"><span className="crosshair">+</span><strong>SCREEN STREAM READY</strong><small>启动镜像后显示设备画面 · 默认 5 FPS</small></div>}
+        {streamKind !== "raw" && image ? <img ref={screenImage} src={image} alt="设备实时画面" /> : streamKind !== "raw" && <div className="screen-placeholder"><strong>屏幕未启动</strong><small>点击“启动镜像”查看设备画面</small></div>}
         {lastAgentInput && <div className="agent-pointer"><i />Agent 输入</div>}
         {inputEnabled && <div className="input-overlay-label">INPUT CAPTURE</div>}
       </div>
@@ -441,6 +447,9 @@ type ActionProps = {
   onSubmit: () => void;
   rpcParams: string;
   setRpcParams: (value: string) => void;
+  rpcMethods: RpcMethod[];
+  rpcMethod: string;
+  setRpcMethod: (value: string) => void;
   rawIds: { service: string; method: string; payload: string };
   setRawIds: (value: { service: string; method: string; payload: string }) => void;
   jobId: string;
@@ -453,9 +462,9 @@ type ActionProps = {
 
 function ActionDialog(props: ActionProps) {
   const dangerous = ["raw", "restart", "factory", "ota", "job"].includes(props.dialog);
-  const titles = { rpc: "调用 RPC Catalog", raw: "发送原始 RPC", restart: "确认重启设备", factory: "进入 Factory Recovery", ota: "执行 OTA 更新", job: "取消设备 Job" };
+  const titles = { rpc: "调用 RPC", raw: "发送原始 RPC", restart: "确认重启设备", factory: "进入 Factory Recovery", ota: "执行 OTA 更新", job: "取消设备 Job" };
   const otaReady = Boolean(props.otaFiles.bin && props.otaFiles.elf && props.otaFiles.map);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={props.onClose}><section className="action-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-heading"><div><p className="eyebrow">DEVICE CONTROL</p><h2>{titles[props.dialog]}</h2></div><button onClick={props.onClose}>×</button></div>{props.dialog === "rpc" && <label>system.info 参数<textarea value={props.rpcParams} onChange={(event) => props.setRpcParams(event.target.value)} /></label>}{props.dialog === "raw" && <><div className="field-pair"><label>Service ID<input value={props.rawIds.service} onChange={(event) => props.setRawIds({ ...props.rawIds, service: event.target.value })} /></label><label>Method ID<input value={props.rawIds.method} onChange={(event) => props.setRawIds({ ...props.rawIds, method: event.target.value })} /></label></div><label>原始载荷<textarea value={props.rawIds.payload} onChange={(event) => props.setRawIds({ ...props.rawIds, payload: event.target.value })} /></label></>}{props.dialog === "job" && <label>Job ID<input type="number" value={props.jobId} onChange={(event) => props.setJobId(event.target.value)} /></label>}{props.dialog === "ota" && <><label>执行位置<select value={props.otaExecutionMode} onChange={(event) => props.setOtaExecutionMode(event.target.value as "recovery" | "application")}><option value="recovery">Factory Recovery（默认）</option><option value="application">当前应用</option></select></label>{(["bin", "elf", "map"] as const).map((kind) => <label className="file-field" key={kind}>{kind.toUpperCase()} 文件<input type="file" accept={`.${kind},application/octet-stream`} onChange={(event) => props.setOtaFiles({ ...props.otaFiles, [kind]: event.target.files?.[0] || null })} /><span>{props.otaFiles[kind]?.name || `选择 .${kind} 文件`}</span></label>)}</>}{props.dialog === "restart" && <p className="dialog-copy">设备会在 250 ms 后重启。操作会记录到设备时间线，重连结果由网关继续观察。</p>}{props.dialog === "factory" && <p className="dialog-copy">设备将选择固定 factory recovery 并执行 planned restart。该能力必须由固件显式提供。</p>}{dangerous && <div className="confirm-warning"><span>!</span><p><strong>需要开发者确认</strong><small>此操作会改变设备状态；Agent Token 调用不需要额外批准。</small></p></div>}<footer><button onClick={props.onClose}>取消</button><button className={dangerous ? "danger-button" : "primary-button"} disabled={props.busy || (props.dialog === "ota" && !otaReady)} onClick={props.onSubmit}>{props.busy ? "执行中…" : "确认执行"}</button></footer></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={props.onClose}><section className="action-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-heading"><h2>{titles[props.dialog]}</h2><button aria-label="关闭" onClick={props.onClose}>×</button></div>{props.dialog === "rpc" && <><label>方法<select value={props.rpcMethod} onChange={(event) => props.setRpcMethod(event.target.value)}>{props.rpcMethods.map((method) => <option key={method.name} value={method.name}>{method.name} · {method.timeout_ms} ms</option>)}</select></label><label>JSON 参数<textarea value={props.rpcParams} onChange={(event) => props.setRpcParams(event.target.value)} /></label></>}{props.dialog === "raw" && <><div className="field-pair"><label>Service ID<input value={props.rawIds.service} onChange={(event) => props.setRawIds({ ...props.rawIds, service: event.target.value })} /></label><label>Method ID<input value={props.rawIds.method} onChange={(event) => props.setRawIds({ ...props.rawIds, method: event.target.value })} /></label></div><label>原始载荷<textarea value={props.rawIds.payload} onChange={(event) => props.setRawIds({ ...props.rawIds, payload: event.target.value })} /></label></>}{props.dialog === "job" && <label>Job ID<input type="number" value={props.jobId} onChange={(event) => props.setJobId(event.target.value)} /></label>}{props.dialog === "ota" && <><label>执行位置<select value={props.otaExecutionMode} onChange={(event) => props.setOtaExecutionMode(event.target.value as "recovery" | "application")}><option value="recovery">Factory Recovery（默认）</option><option value="application">当前应用</option></select></label>{(["bin", "elf", "map"] as const).map((kind) => <label className="file-field" key={kind}>{kind.toUpperCase()} 文件<input type="file" accept={`.${kind},application/octet-stream`} onChange={(event) => props.setOtaFiles({ ...props.otaFiles, [kind]: event.target.files?.[0] || null })} /><span>{props.otaFiles[kind]?.name || `选择 .${kind} 文件`}</span></label>)}</>}{props.dialog === "restart" && <p className="dialog-copy">设备会在 250 ms 后重启；网关会继续等待设备重新连接。</p>}{props.dialog === "factory" && <p className="dialog-copy">设备将进入 Factory Recovery 并重启。只有明确支持此能力的固件才能执行。</p>}{dangerous && <div className="confirm-warning"><span>!</span><p><strong>需要开发者确认</strong><small>此操作会改变当前设备状态，请确认设备和操作无误。</small></p></div>}<footer><button onClick={props.onClose}>取消</button><button className={dangerous ? "danger-button" : "primary-button"} disabled={props.busy || (props.dialog === "ota" && !otaReady) || (props.dialog === "rpc" && !props.rpcMethod)} onClick={props.onSubmit}>{props.busy ? "执行中…" : "确认执行"}</button></footer></section></div>;
 }
 
 function ConsoleDialog({ deviceId, events, onClose }: { deviceId: string; events: GatewayEvent[]; onClose: () => void }) {
@@ -530,11 +539,6 @@ function ConsoleDialog({ deviceId, events, onClose }: { deviceId: string; events
       <p className="console-note">命令串行执行；输出通过设备日志通道返回。请勿输入口令或其他敏感信息。</p>
     </section>
   </div>;
-}
-
-function compactParams(value: Record<string, unknown>) {
-  const text = JSON.stringify(value);
-  return text.length > 96 ? `${text.slice(0, 93)}…` : text;
 }
 
 export function actionLabel(action: string) {

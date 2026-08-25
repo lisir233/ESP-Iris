@@ -5,7 +5,6 @@ import subprocess
 
 import pytest
 
-
 COMPONENT = pathlib.Path(__file__).resolve().parents[2]
 
 

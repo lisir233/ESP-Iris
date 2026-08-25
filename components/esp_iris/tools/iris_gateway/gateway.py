@@ -20,9 +20,17 @@ from .firmware import inspect_firmware_image
 from .http_support import (
     ACTOR_CONTEXT,
     PUBLIC_API,
+)
+from .http_support import (
     error_response as _error,
+)
+from .http_support import (
     json_body as _json_body,
+)
+from .http_support import (
     request_actor as _actor,
+)
+from .http_support import (
     request_is_loopback as _request_is_loopback,
 )
 from .media import encode_media_image
@@ -588,6 +596,31 @@ def create_app(service: GatewayService) -> web.Application:
         audit = service.store.add_audit(_actor(request).kind, _actor(request).name, "device.alias_changed", {"device_id": device_id, "alias": value})
         await service._broadcast_system(audit)
         return web.json_response({"device_id": device_id, "alias": value})
+
+    async def remove_device(request: web.Request) -> web.Response:
+        device_id = service.resolve_device(request.match_info["device_id"])
+        connected_ids = {
+            str(item["device_id"])
+            for item in (service.hub.list_devices() if service.hub else [])
+        }
+        if device_id in connected_ids:
+            return _error(
+                409,
+                "device_connected",
+                "connected devices cannot be removed; disconnect the device first",
+            )
+        if not service.store.remove_device(device_id):
+            raise KeyError(f"unknown device: {device_id}")
+        audit = service.store.add_audit(
+            _actor(request).kind,
+            _actor(request).name,
+            "device.removed",
+            {"device_id": device_id, "history_preserved": True},
+        )
+        await service._broadcast_system(audit)
+        return web.json_response(
+            {"device_id": device_id, "removed": True, "history_preserved": True}
+        )
 
     async def event_history(request: web.Request) -> web.Response:
         cursor = int(request.query.get("cursor", "0"))
@@ -1163,6 +1196,7 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_get("/v1/devices", devices)
     app.router.add_get("/v1/endpoints", endpoints)
     app.router.add_get("/v1/devices/{device_id}", status)
+    app.router.add_delete("/v1/devices/{device_id}", remove_device)
     app.router.add_patch("/v1/devices/{device_id}/alias", alias)
     app.router.add_get("/v1/events", event_history)
     app.router.add_get("/v1/events/ws", event_socket)

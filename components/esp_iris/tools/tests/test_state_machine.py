@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 import pytest
+
 from iris_gateway.state_machine import (
     OperationState,
     SessionEvent,
@@ -12,7 +13,6 @@ from iris_gateway.state_machine import (
     operation_transition,
     session_transition,
 )
-
 
 COMPONENT = pathlib.Path(__file__).resolve().parents[2]
 

@@ -1,7 +1,7 @@
 import json
 import zipfile
 
-from iris_gateway.security import Actor, AuthManager, DEFAULT_DEVELOPER_PASSWORD
+from iris_gateway.security import DEFAULT_DEVELOPER_PASSWORD, Actor, AuthManager
 from iris_gateway.store import GatewayStore
 
 

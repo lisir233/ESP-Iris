@@ -5,7 +5,6 @@ import struct
 import zlib
 from typing import Any
 
-
 RGB565 = 1
 RGB888 = 2
 JPEG = 3
@@ -113,4 +112,4 @@ def encode_media_image(description: dict[str, Any], data: bytes) -> EncodedImage
     raise ValueError(f"unsupported ESP-Iris image format: {format_}")
 
 
-__all__ = ["EncodedImage", "JPEG", "PNG", "RGB565", "RGB888", "encode_media_image"]
+__all__ = ["JPEG", "PNG", "RGB565", "RGB888", "EncodedImage", "encode_media_image"]

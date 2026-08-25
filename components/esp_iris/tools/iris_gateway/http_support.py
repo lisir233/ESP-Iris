@@ -10,7 +10,6 @@ from aiohttp import web
 
 from .security import Actor
 
-
 PUBLIC_API = {"/v1/health", "/v1/auth/state", "/v1/auth/setup", "/v1/auth/login"}
 ACTOR_CONTEXT: contextvars.ContextVar[Actor | None] = contextvars.ContextVar(
     "esp_iris_actor", default=None

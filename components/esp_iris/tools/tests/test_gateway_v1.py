@@ -221,6 +221,72 @@ def test_authenticated_gateway_mode_and_idempotent_operations(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_offline_device_can_be_removed_without_deleting_history(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        store.remember_device(
+            {
+                "device_id": "offline-device",
+                "suggested_alias": "Retired Bench",
+                "firmware_mode": "normal",
+            }
+        )
+        store.set_setting("status.offline-device", {"device_id": "offline-device"})
+        store.append_event(
+            "log",
+            {"kind": "log", "text": "I (1) iris: preserved\n"},
+            "offline-device",
+        )
+        store.create_operation(
+            {
+                "operation_id": "preserved-operation",
+                "device_id": "offline-device",
+                "actor_type": "developer",
+                "actor_name": "Developer",
+                "action": "system.info",
+                "params": {},
+                "status": "succeeded",
+                "created_ns": 1,
+            }
+        )
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            removed = await client.delete("/v1/devices/offline-device")
+            assert removed.status == 200
+            assert await removed.json() == {
+                "device_id": "offline-device",
+                "removed": True,
+                "history_preserved": True,
+            }
+            devices = await client.get("/v1/devices")
+            assert "offline-device" not in {
+                item["device_id"] for item in (await devices.json())["devices"]
+            }
+            assert store.get_setting("status.offline-device") is None
+            assert len(store.latest_events(device_id="offline-device")) == 1
+            assert store.operations("offline-device")[0]["operation_id"] == "preserved-operation"
+            assert store.audits()[0]["action"] == "device.removed"
+
+            connected = await client.delete("/v1/devices/demo-a1b2c3d4")
+            assert connected.status == 409
+            assert (await connected.json())["error"]["code"] == "device_connected"
+            devices = await client.get("/v1/devices")
+            assert "demo-a1b2c3d4" in {
+                item["device_id"] for item in (await devices.json())["devices"]
+            }
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
 def test_named_agent_token_can_switch_mode_without_approval(tmp_path) -> None:
     async def scenario() -> None:
         store = GatewayStore(tmp_path)

@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+
 from iris_gateway.migrations import LATEST_SCHEMA_VERSION, apply_migrations
 from iris_gateway.store import GatewayStore
 

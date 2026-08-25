@@ -43,3 +43,10 @@ export function formatTime(ns?: number): string {
   if (!ns) return "—";
   return new Date(ns / 1e6).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
+
+export function formatDateTime(ns?: number): string {
+  if (!ns) return "—";
+  const value = new Date(ns / 1e6);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`;
+}

@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-
 Migration = Callable[[sqlite3.Connection], None]
 
 

@@ -1,88 +1,71 @@
 import { expect, test } from "@playwright/test";
 
-test("authenticated demo workbench covers device and system views", async ({ page }) => {
+test("desktop workbench keeps the device workflow focused", async ({ page }) => {
   const errors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
-  });
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await page.goto("/");
   await expect(page).toHaveTitle("ESP-Iris 开发者工作台");
-  expect(new URL(page.url()).pathname).toBe("/");
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe("light");
-  await page.getByLabel("开发口令").fill("dev-password");
-  await page.getByRole("button", { name: "进入工作台" }).click();
-  await expect(page.getByText("Mosaico Alpha").first()).toBeVisible();
+
+  const password = page.getByLabel("开发口令");
+  if (await password.isVisible().catch(() => false)) {
+    await expect(password).toHaveValue("espressif");
+    await expect(password).toHaveAttribute("type", "password");
+    await page.getByRole("button", { name: "显示口令" }).click();
+    await expect(password).toHaveAttribute("type", "text");
+    await page.getByRole("button", { name: "隐藏口令" }).click();
+    await expect(password).toHaveAttribute("type", "password");
+    await page.getByRole("button", { name: "进入工作台" }).click();
+  }
+
+  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "设备", exact: true })).toBeVisible();
+  await expect(page.getByText("Camera Bench").first()).toBeVisible();
   const observeMode = page.getByRole("button", { name: "观察模式", exact: true });
-  if (await observeMode.isVisible()) {
+  if (await observeMode.isVisible().catch(() => false)) {
     await observeMode.click();
     await expect(page.getByRole("button", { name: "开发模式", exact: true })).toBeVisible();
   }
-  await page.getByRole("button", { name: /Mosaico Alpha/ }).click();
-  await expect(page.getByText("USB Highspeed", { exact: false }).first()).toBeVisible();
-  await expect(page.getByText("设备操作时间线")).toBeVisible();
-  await expect(page.getByText("设备日志")).toBeVisible();
 
-  await page.getByRole("button", { name: "启动镜像" }).click();
-  await expect(page.getByRole("button", { name: "停止镜像" })).toBeVisible();
-  const screenshot = page.getByRole("button", { name: "PNG 截图" });
-  await expect(screenshot).toBeEnabled();
-  await screenshot.click();
-  await expect(page.getByText("PNG 截图已完成，实时镜像保持运行")).toBeVisible();
-  await expect(page.getByRole("button", { name: "停止镜像" })).toBeVisible();
-  await page.getByRole("button", { name: "停止镜像" }).click();
-  await expect(page.getByRole("button", { name: "启动镜像" })).toBeVisible();
-  const capturedImage = page.getByRole("img", { name: "设备实时画面" });
-  await expect(capturedImage).toBeVisible();
-  const imageBox = await capturedImage.boundingBox();
-  const surfaceBox = await page.locator(".screen-surface").boundingBox();
-  expect(imageBox?.width).toBeLessThanOrEqual(640);
-  expect(imageBox?.height).toBeLessThanOrEqual(360);
-  expect(surfaceBox?.height).toBeLessThanOrEqual(360);
+  const originalCount = await page.locator(".device-row").count();
+  await page.getByLabel("搜索设备").fill("not-a-real-device");
+  await expect(page.getByText("没有匹配的设备")).toBeVisible();
+  await page.getByLabel("清除搜索").click();
+  await expect(page.locator(".device-row")).toHaveCount(originalCount);
 
-  await page.evaluate(async () => {
-    const response = await fetch("/v1/devices/demo-a1b2c3d4/mirror/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: "screen", fps: 5, description: {} }),
-    });
-    if (!response.ok) throw new Error(`mirror pre-start failed: ${response.status}`);
-  });
-  await screenshot.click();
-  await expect(page.getByText("PNG 截图已完成，实时镜像保持运行")).toBeVisible();
-  await expect(page.getByRole("button", { name: "停止镜像" })).toBeVisible();
-  await page.getByRole("button", { name: "停止镜像" }).click();
+  await page.getByText("更多操作", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "Factory Recovery" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "读取系统信息" })).toBeVisible();
+  await page.getByRole("button", { name: "调用 RPC…" }).click();
+  await expect(page.getByRole("heading", { name: "调用 RPC" })).toBeVisible();
+  await expect(page.getByLabel("方法")).toHaveValue("system.info");
+  await page.getByLabel("关闭").click();
 
-  await page.getByRole("button", { name: "RPC Catalog" }).click();
-  await expect(page.getByRole("heading", { name: "调用 RPC Catalog" })).toBeVisible();
-  await page.getByRole("button", { name: "确认执行" }).click();
-  await expect(page.getByText("RPC 已完成")).toBeVisible();
+  await page.getByRole("button", { name: "记录", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "设备操作" })).toBeVisible();
+  await page.getByRole("tab", { name: "系统事件" }).click();
+  await expect(page.getByText("gateway.started").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "设备概览" }).click();
-  await expect(page.getByRole("heading", { name: "设备概览" })).toBeVisible();
-  await expect(page.getByText("能力矩阵")).toBeVisible();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByText("Agent Token", { exact: true })).toBeVisible();
+  await expect(page.getByText("网关信息", { exact: true })).toBeVisible();
+  await expect(page.getByText("RPC Catalog", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("系统审计", { exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "操作记录" }).click();
-  await expect(page.getByRole("heading", { name: "操作记录" })).toBeVisible();
-  await expect(page.getByText("只记录真实设备侧行为", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "API 文档", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "API 文档" })).toBeVisible();
+  await expect(page.getByText("/v1/health", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "系统设置" }).click();
-  await expect(page.getByText("远程 Agent Token", { exact: true })).toBeVisible();
-  await expect(page.getByText("系统审计", { exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "API 文档" }).click();
-  await expect(page.getByRole("heading", { name: "API 文档与试验台" })).toBeVisible();
-  await expect(page.getByText("UNIT TEST CONSOLE")).toBeVisible();
-
-  await page.getByRole("button", { name: "设备工作区" }).click();
-  await page.getByRole("button", { name: "开发模式" }).click();
+  await page.getByRole("button", { name: "设备", exact: true }).click();
+  await page.getByRole("button", { name: "开发模式", exact: true }).click();
   await expect(page.getByText("所有业务设备请求已停止", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "RPC Catalog" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "读取系统信息" })).toBeDisabled();
+
   await page.getByRole("button", { name: "EN", exact: true }).click();
-  await expect(page.getByText("Device controls", { exact: true })).toBeVisible();
-  await expect(page.getByText("Device operation timeline", { exact: true })).toBeVisible();
-  await expect(page.getByText("Device logs", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Devices", exact: true })).toBeVisible();
   const untranslated = new Set<string>();
-  for (const destination of ["Overview", "Operations", "Settings", "API Docs", "Workspace"]) {
+  for (const destination of ["Records", "Settings", "API Docs", "Devices"]) {
     await page.getByRole("button", { name: destination, exact: true }).click();
     const values = await page.locator("body").evaluate((body) => {
       const found = new Set<string>();
@@ -106,4 +89,100 @@ test("authenticated demo workbench covers device and system views", async ({ pag
   expect([...untranslated]).toEqual([]);
   await page.screenshot({ path: process.env.ESP_IRIS_SCREENSHOT || "/tmp/esp-iris-workbench.png", fullPage: true });
   expect(errors).toEqual([]);
+});
+
+test("an offline device can be removed from inventory", async ({ page }) => {
+  let removed = false;
+  await page.route("**/v1/devices**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === "/v1/devices" && request.method() === "GET") {
+      await route.fulfill({
+        json: {
+          demo: false,
+          devices: removed ? [] : [{
+            device_id: "offline-device",
+            suggested_alias: "Retired Bench",
+            connected: false,
+            cached: true,
+            firmware_mode: "normal",
+            app_version: "3.5.0",
+          }],
+        },
+      });
+      return;
+    }
+    if (path === "/v1/devices/offline-device" && request.method() === "DELETE") {
+      removed = true;
+      await route.fulfill({ json: { device_id: "offline-device", removed: true, history_preserved: true } });
+      return;
+    }
+    if (path === "/v1/devices/offline-device" && request.method() === "GET") {
+      await route.fulfill({
+        json: {
+          device_id: "offline-device",
+          suggested_alias: "Retired Bench",
+          connected: false,
+          cached: true,
+          stale: true,
+          mode: "observe",
+          firmware_mode: "normal",
+        },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  page.on("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("操作记录和日志会继续保留");
+    await dialog.accept();
+  });
+
+  await page.goto("/");
+  const password = page.getByLabel("开发口令");
+  if (await password.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "进入工作台" }).click();
+  }
+  await expect(page.getByRole("heading", { name: "Retired Bench" })).toBeVisible();
+  await page.screenshot({ path: process.env.ESP_IRIS_OFFLINE_SCREENSHOT || "/tmp/esp-iris-offline-device.png", fullPage: true });
+  await page.getByRole("button", { name: "移除离线设备 Retired Bench" }).click();
+  await expect(page.getByRole("heading", { name: "Retired Bench" })).toHaveCount(0);
+  await expect(page.getByText("尚未发现 ESP-Iris 设备")).toBeVisible();
+  expect(removed).toBe(true);
+});
+
+test("operation details show calendar dates across midnight", async ({ page }) => {
+  await page.route("**/v1/operations", async (route) => {
+    await route.fulfill({
+      json: {
+        operations: [{
+          operation_id: "cross-day-operation",
+          device_id: "demo-a1b2c3d4",
+          actor_type: "developer",
+          actor_name: "Developer",
+          action: "system.info",
+          params: {},
+          status: "succeeded",
+          result: { ok: true },
+          created_ns: Date.UTC(2026, 7, 24, 15, 59, 50) * 1e6,
+          started_ns: Date.UTC(2026, 7, 24, 15, 59, 55) * 1e6,
+          finished_ns: Date.UTC(2026, 7, 24, 16, 0, 5) * 1e6,
+          queue_position: 0,
+        }],
+      },
+    });
+  });
+
+  await page.goto("/");
+  const password = page.getByLabel("开发口令");
+  if (await password.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "进入工作台" }).click();
+  }
+  await page.getByRole("button", { name: "记录", exact: true }).click();
+  await page.locator(".records-table tbody tr").first().click();
+  const detail = page.locator(".record-detail");
+  await expect(detail).toContainText("2026-08-24 23:59:50");
+  await expect(detail).toContainText("2026-08-24 23:59:55");
+  await expect(detail).toContainText("2026-08-25 00:00:05");
+  await page.screenshot({ path: process.env.ESP_IRIS_RECORD_TIME_SCREENSHOT || "/tmp/esp-iris-record-time.png", fullPage: true });
 });

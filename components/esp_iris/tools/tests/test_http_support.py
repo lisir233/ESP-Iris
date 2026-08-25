@@ -1,6 +1,8 @@
-from aiohttp.test_utils import make_mocked_request
-from iris_gateway.http_support import error_response, request_is_loopback
 from unittest.mock import Mock
+
+from aiohttp.test_utils import make_mocked_request
+
+from iris_gateway.http_support import error_response, request_is_loopback
 
 
 def test_http_support_uses_actual_peer_and_stable_error_shape() -> None:

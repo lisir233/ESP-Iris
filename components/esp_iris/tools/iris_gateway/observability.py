@@ -7,7 +7,6 @@ import dataclasses
 import time
 from typing import Any
 
-
 CORRELATION_FIELDS = (
     "device_id",
     "boot_id",

@@ -105,11 +105,11 @@ def session_transition(current: SessionState, event: SessionEvent) -> SessionSta
 
 __all__ = [
     "ACTIVE_OPERATION_STATES",
+    "TERMINAL_OPERATION_STATES",
     "OperationState",
     "SessionEvent",
     "SessionState",
     "StateTransitionError",
-    "TERMINAL_OPERATION_STATES",
     "operation_transition",
     "session_transition",
 ]

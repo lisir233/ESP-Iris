@@ -2,6 +2,7 @@ import hashlib
 import struct
 
 import pytest
+
 from iris_gateway.firmware import (
     ESP32S31_CHIP_ID,
     ESP_APP_DESC_MAGIC,

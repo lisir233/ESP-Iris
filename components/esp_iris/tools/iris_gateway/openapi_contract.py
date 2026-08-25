@@ -21,7 +21,13 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         "/v1/health": {"get": {"summary": "Gateway health"}},
         "/v1/auth/login": {"post": {"summary": "Developer password login"}},
         "/v1/devices": {"get": {"summary": "Connected and cached devices"}},
-        "/v1/devices/{device_id}": {"get": {"summary": "Current or cached status"}},
+        "/v1/devices/{device_id}": {
+            "get": {"summary": "Current or cached status"},
+            "delete": {
+                "summary": "Remove an offline device from inventory",
+                "description": "Preserves operations, events, logs, and audit history.",
+            },
+        },
         "/v1/mode": {
             "get": {"summary": "Get global mode"},
             "put": {"summary": "Switch develop or observe mode"},

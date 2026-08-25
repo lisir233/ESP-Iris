@@ -5,6 +5,7 @@ import struct
 import zlib
 
 import pytest
+
 from iris_gateway.protocol import (
     MAX_PAYLOAD,
     MAX_WIRE_FRAME,

@@ -111,6 +111,18 @@ class GatewayStore:
             raise ValueError(f"device alias is already in use: {alias}") from exc
         self.db.commit()
 
+    def remove_device(self, device_id: str) -> bool:
+        """Remove a device from inventory without deleting its evidence history."""
+
+        with self.db:
+            cursor = self.db.execute(
+                "DELETE FROM devices WHERE device_id=?", (device_id,)
+            )
+            self.db.execute(
+                "DELETE FROM settings WHERE key=?", (f"status.{device_id}",)
+            )
+        return cursor.rowcount > 0
+
     def cached_devices(self) -> list[dict[str, Any]]:
         rows = self.db.execute(
             "SELECT device_id, alias, last_seen_ns, cached_json FROM devices "
