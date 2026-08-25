@@ -84,29 +84,40 @@ config ESP_IRIS_MEDIA_LATEST_BYTES
         submission replaces an unsent one and increments the drop count.
 
 config ESP_IRIS_OTA
-    bool "Enable bounded application OTA protocol"
+    bool "Enable the bounded OTA image writer"
     default y
     help
+        Enables the OTA channel that receives, validates and writes an image.
+        Enable it in factory recovery firmware, or in a normal application
+        that intentionally performs direct application-layer OTA. A normal
+        application using recovery-assisted OTA may disable this option; it
+        then needs only the product-specific enter-recovery control path.
+
         OTA is exposed only when an eligible non-running OTA partition exists.
         Factory, NVS, coredump and crash metadata partitions are never targets.
 
 config ESP_IRIS_OTA_DEFAULT_VIA_RECOVERY
-    bool "Request factory-recovery-assisted OTA by default"
-    depends on ESP_IRIS_OTA
+    bool "Use factory-recovery-assisted OTA for this normal application"
     default n
     help
-        Declares that normal updates for this product should first reboot into
-        its fixed factory recovery image. The Developer Gateway defaults to
-        this mode for Mosaico projects and reports each reboot and transfer as
-        queryable operation progress.
+        Declares the product policy for a normal application: the Gateway asks
+        it to boot the fixed factory recovery image before transferring the
+        update. The normal application can disable ESP_IRIS_OTA to omit the
+        image writer, while still implementing RPC 0x7fff/2 to select and boot
+        recovery. The recovery image itself must enable ESP_IRIS_OTA.
+
+        The Gateway reports recovery entry, reconnect and transfer as one
+        queryable operation. Select recovery execution on the Gateway as well;
+        firmware configuration cannot silently change an explicit host request.
 
 config ESP_IRIS_OTA_ALLOW_APPLICATION_FALLBACK
     bool "Allow fallback to application-layer OTA"
     depends on ESP_IRIS_OTA && ESP_IRIS_OTA_DEFAULT_VIA_RECOVERY
     default n
     help
-        If disabled, failure to enter recovery fails the operation explicitly.
-        No silent application-layer OTA is attempted.
+        Keeps the OTA writer in a recovery-first normal application so a host
+        may explicitly retry with application execution. The Gateway never
+        falls back silently: failure to enter recovery fails that operation.
 
 config ESP_IRIS_OTA_CHUNK_BYTES
     int "Maximum OTA payload bytes per request"

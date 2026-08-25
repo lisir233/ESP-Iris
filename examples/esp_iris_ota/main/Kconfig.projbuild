@@ -1,0 +1,38 @@
+menu "ESP-Iris OTA example"
+
+config ESP_IRIS_OTA_EXAMPLE_RECOVERY
+    bool "Build the factory recovery image"
+    default n
+    select ESP_IRIS_OTA
+    help
+        Build the image installed in the factory partition. The recovery image
+        stays independent of normal A/B slots and is identified as recovery by
+        its USB product string.
+
+config ESP_IRIS_OTA_EXAMPLE_DIRECT_APPLICATION
+    bool "Build a normal application with the OTA writer"
+    default n
+    depends on !ESP_IRIS_OTA_EXAMPLE_RECOVERY && !ESP_IRIS_OTA_DEFAULT_VIA_RECOVERY
+    select ESP_IRIS_OTA
+    help
+        Builds the alternative direct-OTA profile. The normal application
+        receives and writes the image itself, so the Gateway must use
+        --execution-mode application. Leave this disabled for the smaller
+        recovery-first A/B profiles.
+
+config ESP_IRIS_OTA_EXAMPLE_AUTO_ACCEPT
+    bool "Automatically accept a pending OTA image"
+    default y
+    depends on !ESP_IRIS_OTA_EXAMPLE_RECOVERY
+    help
+        Mark a pending image healthy after services have run for the configured
+        delay. Disable this to exercise bootloader rollback or to accept the
+        image explicitly through RPC service 0x1200, method 2.
+
+config ESP_IRIS_OTA_EXAMPLE_ACCEPT_DELAY_MS
+    int "Automatic acceptance delay (milliseconds)"
+    range 1000 30000
+    default 3000
+    depends on ESP_IRIS_OTA_EXAMPLE_AUTO_ACCEPT && !ESP_IRIS_OTA_EXAMPLE_RECOVERY
+
+endmenu

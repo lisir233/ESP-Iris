@@ -846,6 +846,7 @@ const uint8_t *iris_services_auth_challenge(size_t *size)
     return NULL;
 }
 
+#if CONFIG_ESP_IRIS_TCP_PAIRING || CONFIG_ESP_IRIS_OTA
 static bool constant_time_equal(const uint8_t *left, const uint8_t *right,
                                 size_t size)
 {
@@ -855,6 +856,7 @@ static bool constant_time_equal(const uint8_t *left, const uint8_t *right,
     }
     return difference == 0;
 }
+#endif
 
 esp_err_t iris_services_authenticate(const iris_runtime_t *runtime,
                                      const uint8_t *payload, size_t size)
