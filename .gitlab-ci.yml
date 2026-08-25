@@ -1,0 +1,60 @@
+stages:
+  - verify
+  - build
+
+default:
+  interruptible: true
+
+python:
+  stage: verify
+  image: python:3.12
+  before_script:
+    - python -m pip install -r components/esp_iris/tools/requirements-dev.txt
+  script:
+    - cd components/esp_iris/tools
+    - python -m ruff check --select E9,F63,F7,F82 iris_gateway tests
+    - python -m pytest -q
+
+frontend:
+  stage: verify
+  image: node:22
+  script:
+    - cd components/esp_iris/tools/frontend
+    - npm ci
+    - npm run test:unit
+    - npm run build
+  artifacts:
+    paths:
+      - components/esp_iris/tools/frontend/dist/
+    expire_in: 7 days
+
+esp32s31-examples:
+  stage: build
+  tags:
+    - esp-idf
+  script:
+    - idf.py -C examples/esp_iris_minimal -B build-ci-tcp build
+    - idf.py -C examples/esp_iris_minimal -B build-ci-usb -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
+    - idf.py -C examples/esp_iris_tcp_wifi -B build-ci build
+    - idf.py -C examples/esp_iris_tcp_pairing -B build-ci build
+    - idf.py -C examples/esp_iris_rpc_jobs -B build-ci build
+    - idf.py -C examples/esp_iris_display_input -B build-ci build
+    - idf.py -C examples/esp_iris_media_streams -B build-ci build
+    - idf.py -C examples/esp_iris_ota -B build-ci-recovery -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
+    - idf.py -C examples/esp_iris_ota -B build-ci-a build
+    - idf.py -C examples/esp_iris_ota -B build-ci-b -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
+    - idf.py -C examples/esp_iris_ota -B build-ci-rollback -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
+    - idf.py -C examples/esp_iris_ota -B build-ci-application -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
+  artifacts:
+    when: always
+    paths:
+      - examples/esp_iris_minimal/build-ci-*/*.bin
+      - examples/esp_iris_minimal/build-ci-*/*.elf
+      - examples/esp_iris_minimal/build-ci-*/*.map
+      - examples/esp_iris_*/build-ci/*.bin
+      - examples/esp_iris_*/build-ci/*.elf
+      - examples/esp_iris_*/build-ci/*.map
+      - examples/esp_iris_ota/build-ci-*/*.bin
+      - examples/esp_iris_ota/build-ci-*/*.elf
+      - examples/esp_iris_ota/build-ci-*/*.map
+    expire_in: 14 days

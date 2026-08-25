@@ -168,18 +168,40 @@ requests transmit immediately instead of waiting for that blocking read's
   reconnect, a new boot ID, expected project/version and healthy acceptance.
   Crash evidence is collected independently and is not attributed to OTA.
 
-The repository-wide quality gates have one local entry point:
+The repository-wide quality gates use the same direct commands locally and in
+`.gitlab-ci.yml`:
 
 ```bash
-python3 -m pip install -r common_components/esp_iris/tools/requirements-dev.txt
-python3 tools/ci.py all
-python3 tools/check_esp_iris_budgets.py --require-build-artifacts
+python3 -m pip install -r components/esp_iris/tools/requirements-dev.txt
+cd components/esp_iris/tools
+python3 -m ruff check --select E9,F63,F7,F82 iris_gateway tests
+python3 -m pytest -q
+
+cd frontend
+npm ci
+npm run test:unit
+npm run build
+
+cd ../../../..
+idf.py -C examples/esp_iris_minimal -B build-ci-tcp build
+idf.py -C examples/esp_iris_minimal -B build-ci-usb \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
+idf.py -C examples/esp_iris_tcp_wifi -B build-ci build
+idf.py -C examples/esp_iris_tcp_pairing -B build-ci build
+idf.py -C examples/esp_iris_rpc_jobs -B build-ci build
+idf.py -C examples/esp_iris_display_input -B build-ci build
+idf.py -C examples/esp_iris_media_streams -B build-ci build
+idf.py -C examples/esp_iris_ota -B build-ci-recovery \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
+idf.py -C examples/esp_iris_ota -B build-ci-a build
+idf.py -C examples/esp_iris_ota -B build-ci-b \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
+idf.py -C examples/esp_iris_ota -B build-ci-rollback \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
+idf.py -C examples/esp_iris_ota -B build-ci-application \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
 ```
 
-The same commands back `.gitlab-ci.yml`. Python module and contract tests,
-frontend unit/build/audit checks, catalog consistency, and source/artifact size
-budgets fail closed. Firmware compilation still requires the ESP-IDF runner.
-The committed `frontend/dist/` is the runtime asset; Node is not required on
-developer gateway hosts. See `docs/esp-iris-architecture.md` for layer
-ownership, dependency rules, state machines, testing strategy, observability,
-and migration policy.
+Python module and contract tests, frontend unit tests/build, both minimal
+firmware transports, and all P0/P1 examples fail closed. Firmware compilation
+requires an initialized ESP-IDF shell or a GitLab runner tagged `esp-idf`.
