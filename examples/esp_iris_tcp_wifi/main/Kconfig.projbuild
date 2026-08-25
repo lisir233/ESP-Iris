@@ -1,0 +1,17 @@
+menu "ESP-Iris TCP Wi-Fi example"
+
+config ESP_IRIS_EXAMPLE_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+    help
+        Wi-Fi network used by this example. Keep the default empty in source
+        control and inject a private value through sdkconfig.local.defaults.
+
+config ESP_IRIS_EXAMPLE_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+    help
+        Password for the Wi-Fi network. An empty password selects an open
+        network. Never commit real credentials.
+
+endmenu

@@ -1,0 +1,24 @@
+menu "ESP-Iris TCP pairing example"
+
+config ESP_IRIS_EXAMPLE_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+    help
+        Set only through an ignored sdkconfig.local.defaults file or
+        menuconfig. The example never prints this value.
+
+config ESP_IRIS_EXAMPLE_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+    help
+        Set only through an ignored sdkconfig.local.defaults file or
+        menuconfig. The example never prints this value.
+
+config ESP_IRIS_EXAMPLE_PAIRING_TOKEN
+    string "Initial 64-hex pairing token"
+    default ""
+    help
+        Used only if no pairing token is already stored in NVS. The example
+        never prints it. Generate a new 32-byte random value for every device.
+
+endmenu
