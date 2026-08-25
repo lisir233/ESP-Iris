@@ -4,7 +4,6 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
-# CONFIG_BSP_USB_CONSOLE is not set
 
 # High-Speed CDC0 belongs exclusively to ESP-Iris. Flash over the separate
 # Serial-JTAG/UART path, or manually enter the ROM downloader as a last resort.

@@ -1,6 +1,0 @@
-dependencies:
-  idf:
-    version: ">=5.5"
-
-  esp_iris:
-    path: ../../../common_components/esp_iris
