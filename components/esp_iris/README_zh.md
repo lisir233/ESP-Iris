@@ -2,28 +2,41 @@
 
 [English](README.md)
 
-ESP-Iris 是面向 ESP-IDF 设备的开发链路。设备侧组件通过 USB 或 TCP
-提供日志、状态，以及可选的 RPC、媒体、崩溃证据、配对和 OTA 服务；Python
-Developer Gateway 与 React Web Workbench 运行在 PC 上，因此 HTTP、WebSocket、
-JSON、数据存储和界面渲染都不进入设备固件。
+ESP-Iris 减少嵌入式开发中不必要的编译和烧录时间，让设备的日志、
+状态和操作结果更容易被开发者与 AI Agent 同时理解、控制和追踪。把
+零散的串口调试，变成一个统一、结构化、可恢复的设备开发流程。
+
+ESP-Iris 将调试和控制的 Web plane 移到 PC。每台 ESP32 只运行一条
+有界二进制链路和一个 worker task，通过 USB 或 TCP 提供日志、状态，
+以及可选的 RPC、媒体、崩溃证据、配对和 OTA 服务。设备侧不运行
+HTTP server、WebSocket server、JSON parser、framebuffer mirror，也不进行
+媒体规模的内存分配。
+
+多台设备可以通过独立的 USB 或 TCP 端点同时连接到一个 Python Developer
+Gateway。Gateway 通过稳定的 `device_id` 识别设备，汇聚并持久化设备集群事件，
+再将它们同时分发给 React Web Workbench、命令行客户端和外部 Agent。
 
 当产品需要浏览器工程界面，但不希望在量产固件中嵌入 Web 服务器或调试 UI
 时，可以使用 ESP-Iris。
 
 ```text
-ESP-IDF 应用                 开发者 PC
-┌──────────────────┐        ┌─────────────────┐        ┌───────────────┐
-│ ESP-Iris 设备组件 │ USB/TCP│ Python Gateway  │ HTTP/WS│ Web Workbench │
-│                  ├────────┤ + 本地持久化     ├────────┤ 或 CLI/Agent  │
-└──────────────────┘        └─────────────────┘        └───────────────┘
+ESP32 A -- USB CDC0 ---------\
+ESP32 B -- USB Serial/JTAG ---+--> Python Gateway + 持久化 --+--> Web Workbench
+ESP32 C -- TCP/Wi-Fi --------/                                  +--> CLI 客户端
+ESP32 D -- TCP/Ethernet -----/                                  +--> 外部 Agent
 ```
+
+每个固件镜像只选择一种设备传输，每台物理设备同时最多只有一个 Gateway
+会话。这不会限制设备集群：一个 Gateway 可以并发监督多个设备端点。
+Workbench、CLI 和 Agent 连接分别接收独立的事件流；修改设备的操作会按
+设备串行化。
 
 ## 包含内容
 
 | 层级 | 能力 |
 | --- | --- |
 | 设备组件 | 单个有界 worker、二进制协议、日志、状态、RPC/Job、媒体、崩溃证据、配对和 OTA |
-| Developer Gateway | USB/TCP 发现、会话管理、认证、持久化操作、制品存储和 REST/WebSocket API |
+| Developer Gateway | 并发 USB/TCP 端点监督、设备集群会话管理、认证、持久化操作、制品存储和 REST/WebSocket API |
 | Web Workbench | 设备概览、日志、RPC、屏幕/输入、媒体、固件、操作记录和系统设置 |
 | 命令行客户端 | 面向开发者与 Agent 的可脚本化控制和稳定 JSON 输出 |
 
@@ -41,7 +54,8 @@ ESP-IDF 应用                 开发者 PC
 | Gateway | Python 3.11 或更高版本；当前真实设备主要在 Linux 验证 |
 | Workbench | 构建随组件发布的 React 源码需要当前 Node.js/npm 环境 |
 
-每个固件只编译一种设备传输，运行时不能切换。
+每个固件只编译一种设备传输，运行时不能切换；使用不同传输的
+多台设备仍可以同时连接同一个 Gateway。
 
 ## 快速开始
 

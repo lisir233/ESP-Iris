@@ -1,9 +1,15 @@
 # ESP-Iris Developer Gateway and Web Workbench
 
-The Developer Gateway is the PC-side implementation of ESP-Iris. It owns USB
-or TCP device sessions, exposes a local REST/WebSocket API, stores durable
-engineering records, and serves the React Web Workbench. The same API also
-backs the `ctl` command-line client and external agents.
+The Developer Gateway is the PC-side fleet hub for ESP-Iris. It supervises
+multiple USB and TCP device endpoints concurrently, identifies devices by
+stable `device_id`, exposes REST/WebSocket APIs, stores durable engineering
+records, and serves the React Web Workbench. The `ctl` command-line client and
+external agents use the same API concurrently with the Workbench.
+
+Each physical device has at most one active Gateway session, but one Gateway
+can own many device sessions. Every Workbench, CLI follow command, or external
+agent WebSocket receives an independent event stream. Device-changing
+operations are serialized per device; observers do not compete for events.
 
 The Gateway is source distributed with the ESP-IDF component. It is not
 installed as a Python package.
@@ -63,7 +69,23 @@ python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web --demo
 
 Open `http://127.0.0.1:8443/`.
 
-## Connect a device
+## Connect devices
+
+USB and TCP options are repeatable and may be combined. For example, one
+Gateway process can supervise an application CDC device, a USB Serial/JTAG
+device, and two network devices at the same time:
+
+```bash
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web \
+  --usb /dev/serial/by-id/usb-Espressif_ESP-Iris_A... \
+  --usb-serial-jtag /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_B... \
+  --tcp 192.0.2.21:19772 \
+  --tcp 192.0.2.22:19772
+```
+
+Automatic application CDC discovery can add further devices while the Gateway
+is running. A device selects one transport in its firmware and cannot maintain
+simultaneous USB and TCP sessions to the same Gateway.
 
 ### Automatic application USB discovery
 
@@ -71,8 +93,8 @@ Open `http://127.0.0.1:8443/`.
 python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web
 ```
 
-The default process discovers ESP-Iris application CDC devices, listens on
-`127.0.0.1:8443`, and serves both the API and Workbench.
+The default process discovers all visible ESP-Iris application CDC devices,
+listens on `127.0.0.1:8443`, and serves the API and Workbench.
 
 ### Select an application USB port
 
@@ -148,7 +170,8 @@ contract is `/v1/openapi.json`; metrics are exposed at `/v1/metrics`.
 
 ## Command-line client
 
-The `ctl` client talks to the same Gateway API as the Workbench:
+The `ctl` client talks to the same Gateway API as the Workbench. It can run at
+the same time as one or more Workbench and agent clients:
 
 ```bash
 IRIS="$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py"
@@ -190,9 +213,17 @@ python "$IRIS" ctl --profile lab-a \
 
 ## Runtime and storage model
 
+- One Gateway supervises many USB/TCP endpoints concurrently and indexes their
+  sessions and events by stable `device_id`.
+- Each physical device has at most one active session, even if more than one
+  configured endpoint resolves to that device.
+- Each WebSocket client receives its own live event queue and can resume from a
+  retained event cursor. Workbench, CLI, and agents therefore observe without
+  consuming one another's events.
 - A stable `device_id` joins normal and recovery firmware into one device
   history; `boot_id` identifies a boot and `session_id` identifies a link.
-- Device writes are serialized. OTA/recovery holds the device write lane.
+- Device writes are serialized per device. OTA/recovery holds that device's
+  write lane without blocking observation of it or other devices.
 - `operation_id` makes long-running Gateway operations queryable and
   idempotent; Gateway restart does not replay device writes.
 - Observe mode blocks business device requests while protocol housekeeping and
@@ -200,8 +231,8 @@ python "$IRIS" ctl --profile lab-a \
 - SQLite stores devices, sessions, operations, audit, token metadata, and log
   indexes. Raw logs rotate; explicitly saved artifacts and structured evidence
   remain durable.
-- A new Workbench connection receives recent stored events before live events,
-  preserving continuity across page reloads.
+- A newly connected Workbench, CLI follower, or agent receives recent stored
+  events before live events, preserving continuity across reconnects.
 
 ## Troubleshooting
 

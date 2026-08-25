@@ -2,29 +2,46 @@
 
 [中文说明](README_zh.md)
 
-ESP-Iris is a development link for ESP-IDF devices. A small device component
-exposes logs, status, and optional RPC, media, crash, pairing, and OTA services
-over USB or TCP. The Python Developer Gateway and React Web Workbench run on
-the PC, keeping HTTP, WebSocket, JSON, storage, and UI processing off the
-device.
+ESP-Iris reduces time lost to unnecessary build-and-flash cycles in embedded
+development. It makes device logs, state, and operation results easier for
+developers and AI agents to understand, control, and trace at the same time.
+It turns scattered serial debugging into a unified, structured, and resumable
+device-development workflow.
+
+ESP-Iris moves the debug and control Web plane to the PC. Each ESP32 runs a
+bounded binary link with one worker task and exposes logs, status, and optional
+RPC, media, crash, pairing, and OTA services over USB or TCP. It does not run
+an HTTP server, WebSocket server, JSON parser, framebuffer mirror, or
+allocate media-sized buffers.
+
+Multiple devices can connect concurrently to one Python Developer Gateway
+through independent USB or TCP endpoints. The Gateway identifies each device
+by its stable `device_id`, aggregates and persists fleet events, and fans them
+out to the React Web Workbench, command-line clients, and external agents at
+the same time.
 
 Use ESP-Iris when a product needs a browser-based engineering interface without
 embedding a Web server or debug UI in its firmware.
 
 ```text
-ESP-IDF application          Developer PC
-┌──────────────────┐        ┌─────────────────┐        ┌───────────────┐
-│ ESP-Iris device  │ USB/TCP│ Python Gateway  │ HTTP/WS│ Web Workbench │
-│ component        ├────────┤ + local storage ├────────┤ or CLI/Agent  │
-└──────────────────┘        └─────────────────┘        └───────────────┘
+ESP32 A -- USB CDC0 ---------\
+ESP32 B -- USB Serial/JTAG ---+--> Python Gateway + storage --+--> Web Workbench
+ESP32 C -- TCP/Wi-Fi --------/                              +--> CLI clients
+ESP32 D -- TCP/Ethernet -----/                              +--> External agents
 ```
+
+Each firmware image selects one device transport, and each physical device has
+at most one active Gateway session. This does not limit the fleet: one Gateway
+can supervise many device endpoints concurrently. Workbench, CLI, and agent
+connections receive independent event streams; device-changing operations are
+serialized per device.
 
 ## What you get
 
 | Layer | Included capability |
 | --- | --- |
 | Device component | One bounded worker, binary framing, logs, status, RPC/jobs, media, crash evidence, pairing, and OTA |
-| Developer Gateway | USB/TCP discovery, session management, authentication, durable operations, artifacts, and REST/WebSocket APIs |
+| Developer Gateway | Concurrent USB/TCP endpoint supervision, fleet session management, authentication, durable operations, artifacts, and REST/WebSocket APIs |
 | Web Workbench | Device overview, logs, RPC, screen/input, media, firmware, operations, records, and settings |
 | Command-line client | Scriptable control with stable JSON output for developers and agents |
 
@@ -43,8 +60,9 @@ Kconfig and are activated only when configured or used.
 | Gateway | Python 3.11 or newer; Linux is the primary real-device validation platform |
 | Workbench | A current Node.js/npm environment is required to build the bundled React source |
 
-Only one device transport is compiled into a firmware image. Transport
-selection is static and cannot be changed at runtime.
+Only one device transport is compiled into each firmware image. Transport
+selection is static and cannot be changed at runtime, but devices using
+different transports can share one Gateway concurrently.
 
 ## Quick start
 
