@@ -1,0 +1,50 @@
+{
+  "schema": "esp-iris-rpc-catalog/v1",
+  "methods": [
+    {
+      "name": "system.echo",
+      "title": "Echo / 连通性检查",
+      "service_id": 1,
+      "method_id": 1,
+      "timeout_ms": 1000,
+      "request_encoding": "json",
+      "response_encoding": "json",
+      "compatibility": {
+        "firmware_modes": ["normal", "recovery"],
+        "capability": "rpc",
+        "max_request_bytes": 4096,
+        "max_response_bytes": 4096
+      }
+    },
+    {
+      "name": "system.info",
+      "title": "System info / 系统信息",
+      "service_id": 1,
+      "method_id": 2,
+      "timeout_ms": 1500,
+      "request_encoding": "json",
+      "response_encoding": "json",
+      "compatibility": {
+        "firmware_modes": ["normal", "recovery"],
+        "capability": "rpc",
+        "max_request_bytes": 1024,
+        "max_response_bytes": 16384
+      }
+    },
+    {
+      "name": "console.execute",
+      "title": "Line console / 逐行控制台",
+      "service_id": 4098,
+      "method_id": 1,
+      "timeout_ms": 1000,
+      "request_encoding": "utf8-line",
+      "response_encoding": "job-id-le32",
+      "compatibility": {
+        "firmware_modes": ["normal"],
+        "capability": "rpc",
+        "max_request_bytes": 255,
+        "max_response_bytes": 4
+      }
+    }
+  ]
+}

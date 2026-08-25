@@ -1,0 +1,3 @@
+aiohttp>=3.10,<4
+cryptography>=43,<47
+pyserial>=3.5,<4

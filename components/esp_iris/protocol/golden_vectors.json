@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "protocol_version": 1,
+  "vectors": [
+    {
+      "name": "hello_ack_empty",
+      "frame": {
+        "channel": 0,
+        "type": 2,
+        "flags": 1,
+        "session_id": 16909060,
+        "request_id": 0,
+        "stream_id": 0,
+        "sequence": 7
+      },
+      "payload_hex": "",
+      "wire_hex": "0749524953012003020101010504030201010101010101010207010101010101059d44bd0200"
+    },
+    {
+      "name": "ping_ascii",
+      "frame": {
+        "channel": 0,
+        "type": 3,
+        "flags": 0,
+        "session_id": 287454020,
+        "request_id": 1432778632,
+        "stream_id": 0,
+        "sequence": 1
+      },
+      "payload_hex": "69726973",
+      "wire_hex": "074952495301200203010101094433221188776655010101020101010204010109697269732121d1b600"
+    },
+    {
+      "name": "cobs_zero_and_ff",
+      "frame": {
+        "channel": 5,
+        "type": 33,
+        "flags": 28,
+        "session_id": 2309737967,
+        "request_id": 270544960,
+        "stream_id": 1348497536,
+        "sequence": 2426450112
+      },
+      "payload_hex": "00ff0069726973ff",
+      "wire_hex": "0a49524953012005211c010112efcdab894030201080706050c0b0a0900801010102ff0a69726973ff97cfdec400"
+    }
+  ]
+}

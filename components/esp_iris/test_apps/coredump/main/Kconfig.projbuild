@@ -1,0 +1,19 @@
+menu "ESP-Iris private board-test settings"
+
+config ESP_IRIS_TEST_WIFI_SSID
+    string "Board-test Wi-Fi SSID"
+    default ""
+
+config ESP_IRIS_TEST_WIFI_PASSWORD
+    string "Board-test Wi-Fi password"
+    default ""
+
+config ESP_IRIS_TEST_PAIRING_TOKEN
+    string "Initial 64-hex pairing token"
+    default ""
+
+config ESP_IRIS_TEST_NEXT_PAIRING_TOKEN
+    string "Rotated 64-hex pairing token"
+    default ""
+
+endmenu

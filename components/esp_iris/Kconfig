@@ -1,0 +1,158 @@
+menu "ESP-Iris device link"
+
+config ESP_IRIS_ENABLE
+    bool "Enable ESP-Iris"
+    default y
+
+if ESP_IRIS_ENABLE
+
+choice ESP_IRIS_TRANSPORT
+    prompt "Device transport"
+    default ESP_IRIS_TRANSPORT_TCP
+    help
+        Exactly one transport is compiled into a normal firmware image. The
+        transport cannot be changed or preempted at runtime.
+
+config ESP_IRIS_TRANSPORT_USB
+    bool "USB CDC0 (ESP-Iris binary protocol only)"
+    depends on IDF_TARGET_ESP32S31
+    depends on !BSP_USB_CONSOLE
+    select TINYUSB_CDC_ENABLED
+    help
+        ESP-Iris owns TinyUSB and CDC0. stdout/stderr are carried inside the
+        binary LOG channel; CDC is not a text console and DTR/RTS never enters
+        ROM download mode.
+
+config ESP_IRIS_TRANSPORT_TCP
+    bool "Raw TCP server"
+    help
+        Listen on all device interfaces. ESP-Iris does not initialize Wi-Fi,
+        provision credentials, or create a network interface.
+
+endchoice
+
+config ESP_IRIS_TCP_PORT
+    int "Raw TCP listen port"
+    depends on ESP_IRIS_TRANSPORT_TCP
+    range 1024 65535
+    default 19772
+
+config ESP_IRIS_TASK_STACK_SIZE
+    int "Worker task stack size (bytes)"
+    range 3072 8192
+    default 3328
+
+config ESP_IRIS_TASK_PRIORITY
+    int "Worker task priority"
+    range 1 20
+    default 5
+
+config ESP_IRIS_LOG_RING_BYTES
+    int "stdout/stderr log ring size"
+    range 2048 16384
+    default 4096
+
+config ESP_IRIS_CRASH_CHUNK_BYTES
+    int "Maximum coredump bytes per response"
+    range 256 2048
+    default 1024
+    help
+        Bounds each read-only crash evidence response. The implementation
+        reuses the receive frame buffer; no full coredump is allocated in RAM.
+
+config ESP_IRIS_MAX_RPC_HANDLERS
+    int "Maximum registered RPC handlers"
+    range 1 32
+    default 8
+
+config ESP_IRIS_RPC_BODY_BYTES
+    int "Maximum RPC request or response body"
+    range 128 2048
+    default 1024
+
+config ESP_IRIS_MAX_JOBS
+    int "Maximum retained jobs"
+    range 1 16
+    default 4
+
+config ESP_IRIS_MEDIA_LATEST_BYTES
+    int "Latest media chunk buffer per active channel"
+    range 256 3840
+    default 3840
+    help
+        Allocated only while mirror/IMAGE/AUDIO streaming is active. A newer
+        submission replaces an unsent one and increments the drop count.
+
+config ESP_IRIS_OTA
+    bool "Enable bounded application OTA protocol"
+    default y
+    help
+        OTA is exposed only when an eligible non-running OTA partition exists.
+        Factory, NVS, coredump and crash metadata partitions are never targets.
+
+config ESP_IRIS_OTA_DEFAULT_VIA_RECOVERY
+    bool "Request factory-recovery-assisted OTA by default"
+    depends on ESP_IRIS_OTA
+    default n
+    help
+        Declares that normal updates for this product should first reboot into
+        its fixed factory recovery image. The Developer Gateway defaults to
+        this mode for Mosaico projects and reports each reboot and transfer as
+        queryable operation progress.
+
+config ESP_IRIS_OTA_ALLOW_APPLICATION_FALLBACK
+    bool "Allow fallback to application-layer OTA"
+    depends on ESP_IRIS_OTA && ESP_IRIS_OTA_DEFAULT_VIA_RECOVERY
+    default n
+    help
+        If disabled, failure to enter recovery fails the operation explicitly.
+        No silent application-layer OTA is attempted.
+
+config ESP_IRIS_OTA_CHUNK_BYTES
+    int "Maximum OTA payload bytes per request"
+    depends on ESP_IRIS_OTA
+    range 256 2048
+    default 1024
+
+config ESP_IRIS_TCP_PAIRING
+    bool "Require challenge-HMAC pairing on raw TCP"
+    depends on ESP_IRIS_TRANSPORT_TCP
+    default n
+    help
+        Generates a random token in NVS. The token never crosses the device
+        link; each session proves possession using a fresh challenge.
+
+config ESP_IRIS_AUTH_FAILURE_DELAY_MS
+    int "Minimum delay after a failed pairing proof"
+    depends on ESP_IRIS_TCP_PAIRING
+    range 100 5000
+    default 500
+
+config ESP_IRIS_USB_VID
+    hex "USB vendor ID"
+    depends on ESP_IRIS_TRANSPORT_USB
+    range 0x0001 0xFFFF
+    default 0x303A
+
+config ESP_IRIS_USB_PID
+    hex "USB product ID"
+    depends on ESP_IRIS_TRANSPORT_USB
+    range 0x0001 0xFFFF
+    default 0x4002
+    help
+        0x4002 is suitable for development and matches Espressif TinyUSB CDC
+        examples. Allocate a product PID before production distribution.
+
+config ESP_IRIS_USB_MANUFACTURER
+    string "USB manufacturer string"
+    depends on ESP_IRIS_TRANSPORT_USB
+    default "Espressif"
+
+config ESP_IRIS_USB_PRODUCT
+    string "USB product string"
+    depends on ESP_IRIS_TRANSPORT_USB
+    default "ESP-Iris"
+
+endif
+
+endmenu

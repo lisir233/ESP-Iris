@@ -1,0 +1,18 @@
+{
+  "schema": "esp-iris-resource-budgets/v1",
+  "source_lines": {
+    "common_components/esp_iris/src/esp_iris.c": 1050,
+    "common_components/esp_iris/src/esp_iris_services.c": 1900,
+    "common_components/esp_iris/tools/iris_gateway/gateway.py": 1250,
+    "common_components/esp_iris/tools/iris_gateway/session.py": 1000,
+    "common_components/esp_iris/tools/frontend/src/Workspace.tsx": 550
+  },
+  "artifacts_bytes": {
+    "template/build/esp_mosaico_iris.bin": 734003,
+    "common_components/esp_iris/test_apps/services_usb/build/esp_iris_services_usb_test.bin": 471859,
+    "common_components/esp_iris/test_apps/coredump/build/esp_iris_coredump_test.bin": 1258291
+  },
+  "directory_bytes": {
+    "common_components/esp_iris/tools/frontend/dist": 409600
+  }
+}
