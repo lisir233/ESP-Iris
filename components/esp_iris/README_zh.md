@@ -151,7 +151,7 @@ USB/TCP 选择、认证、TLS、CLI、数据保留和开发命令参见
 | 屏幕/图像/音频 | 主机开始流传输前保持空闲 | 每个活动 channel 一个 `CONFIG_ESP_IRIS_MEDIA_LATEST_BYTES` 缓冲区 |
 | 崩溃证据 | 存在时只读提供 | 使用 `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` 分块 |
 | TCP 配对 | 默认关闭 | 一个 NVS token 和 challenge-HMAC 状态 |
-| OTA writer | 可配置 | 使用 `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES` 分块，不在 RAM 中缓存完整镜像 |
+| OTA writer | 可配置；默认允许跨项目更新 | 使用 `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES` 分块；`CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` 可要求与当前项目名匹配 |
 | 文件服务 | 应用注册逻辑卷后才启用 | 一个文件任务、一个流和每块 `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` |
 
 媒体 channel 使用 credit 和 latest-chunk 策略，慢速主机不会在设备侧产生无界队列。

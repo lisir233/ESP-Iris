@@ -179,6 +179,19 @@ config ESP_IRIS_OTA_ALLOW_APPLICATION_FALLBACK
         may explicitly retry with application execution. The Gateway never
         falls back silently: failure to enter recovery fails that operation.
 
+config ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH
+    bool "Require OTA project name to match the running firmware"
+    default n
+    help
+        Rejects an OTA image when its esp_app_desc_t project_name differs
+        from the project_name of the running firmware. The policy is
+        advertised to the Gateway so recovery-first updates can be rejected
+        before entering recovery when the normal firmware requires a match.
+
+        Leave this disabled to allow intentional project renames and
+        cross-project updates. Image integrity and the project/version
+        metadata supplied with OTA are still validated independently.
+
 config ESP_IRIS_OTA_CHUNK_BYTES
     int "Maximum OTA payload bytes per request"
     depends on ESP_IRIS_OTA

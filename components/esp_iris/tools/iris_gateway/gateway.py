@@ -262,7 +262,7 @@ class GatewayService:
         if execution_mode not in {"recovery", "application"}:
             raise ValueError("OTA execution mode must be recovery or application")
         if (
-            (execution_mode == "application" or before.get("firmware_mode") != "recovery")
+            before.get("ota_project_name_match_required", False)
             and before.get("project_name")
             and before["project_name"] != metadata["project_name"]
         ):

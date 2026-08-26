@@ -60,9 +60,12 @@ it is never placed in one oversized envelope.
 
 Channels are `CONTROL=0`, `LOG=1`, `EVENT=2`, `SCREEN=3`, `IMAGE=4`,
 `AUDIO=5`, `OTA=6`, `CRASH=7`, and `FILE=8`. FILE is sent only when both peers
-recognize `CAP_FILE` (capability bit 13). Unknown types on a known channel produce a
-CONTROL ERROR when a response is possible. A future protocol version must use
-capability negotiation rather than silently reinterpreting an existing type.
+recognize `CAP_FILE` (capability bit 13). `CAP_OTA_PROJECT_NAME_MATCH`
+(capability bit 14) advertises that the running firmware requires an OTA
+image's project name to match its own. An absent bit means that cross-project
+updates are allowed. Unknown types on a known channel produce a CONTROL ERROR
+when a response is possible. A future protocol version must use capability
+negotiation rather than silently reinterpreting an existing type.
 
 ## Control session
 
@@ -413,11 +416,15 @@ rejects oversized images. BEGIN_RESPONSE returns
 `job_id:u32, total_size:u32, chunk_max:u16, label_len:u8, label[]`. DATA is
 `offset:u32, bytes[]` and must be strictly sequential. Every chunk updates a
 PSA SHA-256 operation and `esp_ota_write`. END requires exact byte count,
-full-image SHA match, a valid ESP-IDF image, optional exact project/version
-policy, and a successful recovery adapter before selecting the boot
-partition. The default weak recovery hook returns `ESP_ERR_NOT_SUPPORTED`,
-which deliberately rejects boot-slot selection. CANCEL, job cancellation,
-disconnect or any error calls `esp_ota_abort`.
+full-image SHA match, a valid ESP-IDF image, exact agreement with the
+project/version metadata supplied in BEGIN, and a successful recovery adapter
+before selecting the boot partition. When
+`CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` is enabled, END additionally
+requires the image project name to equal the running firmware project name.
+The Gateway honors the advertised capability before recovery entry or direct
+OTA. The option defaults off. The default weak recovery hook returns
+`ESP_ERR_NOT_SUPPORTED`, which deliberately rejects boot-slot selection.
+CANCEL, job cancellation, disconnect or any error calls `esp_ota_abort`.
 
 STATUS has an empty request and returns
 `job_id:u32, total_size:u32, received:u32, progress_permille:u16, active:u8,

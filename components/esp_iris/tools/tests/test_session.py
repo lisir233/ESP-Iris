@@ -70,7 +70,7 @@ def test_session_hello_credit_and_log_event() -> None:
                 (TlvTag.DEVICE_ID, bytes.fromhex("00112233445566778899aabbccddeeff")),
                 (TlvTag.BOOT_ID, struct.pack("<Q", 7)),
                 (TlvTag.PROTOCOL_VERSION, struct.pack("<H", 1)),
-                (TlvTag.CAPABILITIES, struct.pack("<Q", 0x0F)),
+                (TlvTag.CAPABILITIES, struct.pack("<Q", 0x400F)),
                 (TlvTag.TRANSPORT, b"\x01"),
                 (TlvTag.AUTH_MODE, b"\x00"),
                 (TlvTag.MAX_PAYLOAD, struct.pack("<I", 4000)),
@@ -89,6 +89,8 @@ def test_session_hello_credit_and_log_event() -> None:
         )
         info = await session.wait_ready()
         assert info.device_id == "00112233445566778899aabbccddeeff"
+        assert info.as_dict()["ota_project_name_match_required"] is True
+        assert "ota_project_name_match" in info.as_dict()["capability_names"]
         assert ready == [info.device_id]
         sent_types = [decode_frame(wire[:-1]).type for wire in link.writes]
         assert sent_types[:2] == [ControlType.HELLO_ACK, ControlType.CREDIT]

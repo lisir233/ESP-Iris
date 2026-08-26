@@ -161,7 +161,7 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 | Screen/image/audio | Idle until the host starts a stream | One `CONFIG_ESP_IRIS_MEDIA_LATEST_BYTES` buffer per active channel |
 | Crash evidence | Read-only when present | Chunked by `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` |
 | TCP pairing | Disabled by default | One NVS token and challenge-HMAC state |
-| OTA writer | Configurable | Chunked by `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES`; no full image is buffered in RAM |
+| OTA writer | Configurable; cross-project updates allowed by default | Chunked by `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES`; `CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` opts into matching the running project |
 | File service | Disabled until the application registers a logical volume | One file task, one stream, and `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` per chunk |
 
 The component uses credit-based channels and a latest-chunk policy for media.

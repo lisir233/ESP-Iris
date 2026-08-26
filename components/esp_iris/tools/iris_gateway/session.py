@@ -14,6 +14,7 @@ from typing import Any
 from .files import DeviceFiles
 from .link import Link
 from .protocol import (
+    Capability,
     Channel,
     ControlType,
     CrashType,
@@ -78,12 +79,16 @@ class DeviceInfo:
             11: "audio",
             12: "mirror",
             13: "files",
+            14: "ota_project_name_match",
         }
         names = [name for bit, name in bits.items() if self.capabilities & (1 << bit)]
         names.append("restart")
         if "rpc" in names:
             names.append("input")
         result["capability_names"] = names
+        result["ota_project_name_match_required"] = bool(
+            self.capabilities & Capability.OTA_PROJECT_NAME_MATCH
+        )
         return result
 
 

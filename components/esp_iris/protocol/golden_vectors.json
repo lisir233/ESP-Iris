@@ -17,6 +17,20 @@
       "wire_hex": "0749524953012003020101010504030201010101010101010207010101010101059d44bd0200"
     },
     {
+      "name": "hello_ota_project_match_capability",
+      "frame": {
+        "channel": 0,
+        "type": 1,
+        "flags": 8,
+        "session_id": 16909060,
+        "request_id": 0,
+        "stream_id": 0,
+        "sequence": 1
+      },
+      "payload_hex": "0508000040000000000000",
+      "wire_hex": "07495249530120030108010105040302010101010101010102010101020b0101030508010240010101010105c373c31100"
+    },
+    {
       "name": "ping_ascii",
       "frame": {
         "channel": 0,

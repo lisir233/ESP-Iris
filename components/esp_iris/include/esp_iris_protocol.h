@@ -186,6 +186,7 @@ enum {
     ESP_IRIS_CAP_AUDIO = 1ULL << 11,
     ESP_IRIS_CAP_MIRROR = 1ULL << 12,
     ESP_IRIS_CAP_FILE = 1ULL << 13,
+    ESP_IRIS_CAP_OTA_PROJECT_NAME_MATCH = 1ULL << 14,
 };
 
 typedef enum {

@@ -37,6 +37,24 @@ class Transport(enum.IntEnum):
     USB_SERIAL_JTAG = 3
 
 
+class Capability(enum.IntFlag):
+    LOG = 1 << 0
+    EVENT = 1 << 1
+    STATUS = 1 << 2
+    TIME_SYNC = 1 << 3
+    SCREEN = 1 << 4
+    OTA = 1 << 5
+    CRASH = 1 << 6
+    AUTH = 1 << 7
+    RPC = 1 << 8
+    JOBS = 1 << 9
+    IMAGE = 1 << 10
+    AUDIO = 1 << 11
+    MIRROR = 1 << 12
+    FILE = 1 << 13
+    OTA_PROJECT_NAME_MATCH = 1 << 14
+
+
 class ControlType(enum.IntEnum):
     HELLO = 0x01
     HELLO_ACK = 0x02

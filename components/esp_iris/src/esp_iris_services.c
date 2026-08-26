@@ -817,6 +817,9 @@ uint64_t iris_services_capabilities(void)
         result |= ESP_IRIS_CAP_OTA;
     }
 #endif
+#if CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH
+    result |= ESP_IRIS_CAP_OTA_PROJECT_NAME_MATCH;
+#endif
 #if CONFIG_ESP_IRIS_TCP_PAIRING
     result |= ESP_IRIS_CAP_AUTH;
 #endif
@@ -1641,6 +1644,15 @@ static bool handle_ota(iris_runtime_t *runtime,
                     sizeof(description.version)) != 0) {
             err = ESP_ERR_INVALID_VERSION;
         }
+#if CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH
+        const esp_app_desc_t *running_description = esp_app_get_description();
+        if (err == ESP_OK &&
+            strncmp(description.project_name,
+                    running_description->project_name,
+                    sizeof(description.project_name)) != 0) {
+            err = ESP_ERR_INVALID_VERSION;
+        }
+#endif
         const esp_partition_t *running = esp_ota_get_running_partition();
         if (err == ESP_OK) {
             err = esp_iris_platform_prepare_ota(
