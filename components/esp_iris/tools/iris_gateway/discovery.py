@@ -4,6 +4,11 @@ import os
 import pathlib
 from dataclasses import dataclass
 
+_SERIAL_PATH_DIRECTORIES = (
+    pathlib.Path("/dev/serial/by-path"),
+    pathlib.Path("/dev/serial/by-id"),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class IrisUsbDevice:
@@ -17,13 +22,21 @@ class IrisUsbDevice:
 
 
 def _stable_linux_path(device: str) -> str:
-    directory = pathlib.Path("/dev/serial/by-id")
-    if os.name != "posix" or not directory.is_dir():
+    if os.name != "posix":
         return device
     target = os.path.realpath(device)
-    for candidate in sorted(directory.iterdir()):
-        if os.path.realpath(candidate) == target:
-            return str(candidate)
+    # Prefer the physical USB topology path. ESP-Iris recovery and normal
+    # firmware intentionally expose different product strings, so Linux gives
+    # them different by-id names. A supervisor opened through the old by-id
+    # link cannot reconnect after the device re-enumerates. The by-path link
+    # remains stable across that transition; by-id is only a fallback for
+    # systems that do not expose by-path links.
+    for directory in _SERIAL_PATH_DIRECTORIES:
+        if not directory.is_dir():
+            continue
+        for candidate in sorted(directory.iterdir()):
+            if os.path.realpath(candidate) == target:
+                return str(candidate)
     return device
 
 

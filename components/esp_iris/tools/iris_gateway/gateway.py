@@ -286,7 +286,7 @@ class GatewayService:
                 await asyncio.sleep(0.25)
                 try:
                     recovery_status = await self.hub.status(device_id)
-                except (KeyError, LookupError, RuntimeError):
+                except (ConnectionError, KeyError, LookupError, RuntimeError):
                     continue
                 if (
                     recovery_status.get("firmware_mode") == "recovery"
