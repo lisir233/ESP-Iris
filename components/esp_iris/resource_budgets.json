@@ -3,8 +3,12 @@
   "source_lines": {
     "common_components/esp_iris/src/esp_iris.c": 1050,
     "common_components/esp_iris/src/esp_iris_services.c": 1900,
+    "common_components/esp_iris/src/esp_iris_files.c": 1700,
     "common_components/esp_iris/tools/iris_gateway/gateway.py": 1250,
     "common_components/esp_iris/tools/iris_gateway/session.py": 1000,
+    "common_components/esp_iris/tools/iris_gateway/files.py": 550,
+    "common_components/esp_iris/tools/iris_gateway/file_routes.py": 400,
+    "common_components/esp_iris/tools/frontend/src/Files.tsx": 300,
     "common_components/esp_iris/tools/frontend/src/Workspace.tsx": 550
   },
   "artifacts_bytes": {

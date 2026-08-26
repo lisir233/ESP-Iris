@@ -16,6 +16,8 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from .contracts import GatewayHub
+from .file_routes import register_file_routes
+from .files import FileServiceError, file_error_http_status
 from .firmware import inspect_firmware_image
 from .http_support import (
     ACTOR_CONTEXT,
@@ -43,6 +45,8 @@ from .store import GatewayStore
 LOG_PATTERN = re.compile(r"^(?P<level>[EWIDV])\s+\((?P<stamp>\d+)\)\s+(?P<tag>[^:]+):\s?(?P<message>.*)$")
 CONSOLE_METHOD_NAME = "console.execute"
 CONSOLE_LINE_MAX_BYTES = 255
+
+
 class GatewayService:
     def __init__(
         self,
@@ -449,6 +453,9 @@ def create_app(service: GatewayService) -> web.Application:
             return _error(400, "invalid_json", str(exc))
         except (TypeError, ValueError) as exc:
             return _error(400, "invalid_request", str(exc))
+        except FileServiceError as exc:
+            status = file_error_http_status(exc.status)
+            return _error(status, f"file_{exc.status.name.lower()}", str(exc))
         except KeyError as exc:
             return _error(404, "not_found", str(exc))
         except LookupError as exc:
@@ -1137,7 +1144,10 @@ def create_app(service: GatewayService) -> web.Application:
         if request.method == "GET":
             return web.json_response({"tokens": service.auth.list_agent_tokens()})
         body = await _json_body(request)
-        return web.json_response(service.auth.create_agent_token(str(body.get("name", "")), _actor(request)), status=201)
+        created = service.auth.create_agent_token(
+            str(body.get("name", "")), _actor(request), body.get("scopes")
+        )
+        return web.json_response(created, status=201)
 
     async def revoke_token(request: web.Request) -> web.Response:
         service.auth.revoke_agent_token(request.match_info["token_id"], _actor(request))
@@ -1202,6 +1212,7 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_get("/v1/events/ws", event_socket)
     app.router.add_get("/v1/operations", operation_list)
     app.router.add_get("/v1/operations/{operation_id}", operation_get)
+    register_file_routes(app, service)
     app.router.add_get("/v1/firmware-artifacts", firmware_artifacts)
     app.router.add_post("/v1/firmware-artifacts", firmware_artifacts)
     app.router.add_get("/v1/firmware-artifacts/{artifact_id}", firmware_artifact)

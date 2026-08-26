@@ -3,23 +3,30 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import hmac
+import json
 import secrets
 import sqlite3
 import time
+from collections.abc import Iterable
 from typing import Any
 
 from .store import GatewayStore
 
 DEFAULT_DEVELOPER_PASSWORD = "espressif"
+AGENT_TOKEN_SCOPES = frozenset({"files.read", "files.write", "files.delete"})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Actor:
     kind: str
     name: str
+    scopes: frozenset[str] = frozenset({"*"})
 
-    def as_dict(self) -> dict[str, str]:
-        return {"type": self.kind, "name": self.name}
+    def as_dict(self) -> dict[str, Any]:
+        return {"type": self.kind, "name": self.name, "scopes": sorted(self.scopes)}
+
+    def allows(self, scope: str) -> bool:
+        return "*" in self.scopes or scope in self.scopes
 
 
 class AuthManager:
@@ -94,10 +101,18 @@ class AuthManager:
         entry = self._sessions.get(token)
         return entry[0] if entry else None
 
-    def create_agent_token(self, name: str, actor: Actor) -> dict[str, Any]:
+    def create_agent_token(
+        self,
+        name: str,
+        actor: Actor,
+        scopes: Iterable[str] | None = None,
+    ) -> dict[str, Any]:
         clean = name.strip()
         if not clean or len(clean) > 64:
             raise ValueError("token name must contain 1 to 64 characters")
+        selected_scopes = frozenset({"files.read"} if scopes is None else scopes)
+        if not selected_scopes or not selected_scopes <= AGENT_TOKEN_SCOPES:
+            raise ValueError("agent token contains an unsupported or empty scope set")
         token_id = secrets.token_hex(8)
         secret = secrets.token_urlsafe(32)
         bearer = f"iris_{token_id}_{secret}"
@@ -105,9 +120,10 @@ class AuthManager:
         now = time.time_ns()
         try:
             self.store.db.execute(
-                "INSERT INTO agent_tokens(token_id, name, token_hash, created_ns) "
-                "VALUES(?, ?, ?, ?)",
-                (token_id, clean, digest, now),
+                "INSERT INTO agent_tokens"
+                "(token_id, name, token_hash, created_ns, scopes_json) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (token_id, clean, digest, now, json.dumps(sorted(selected_scopes))),
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"agent token name is already in use: {clean}") from exc
@@ -120,6 +136,7 @@ class AuthManager:
             "name": clean,
             "token": bearer,
             "created_ns": now,
+            "scopes": sorted(selected_scopes),
             "shown_once": True,
         }
 
@@ -128,7 +145,7 @@ class AuthManager:
             return None
         digest = hashlib.sha256(bearer.encode("utf-8")).hexdigest()
         row = self.store.db.execute(
-            "SELECT token_id, name FROM agent_tokens "
+            "SELECT token_id, name, scopes_json FROM agent_tokens "
             "WHERE token_hash=? AND revoked_ns IS NULL",
             (digest,),
         ).fetchone()
@@ -139,14 +156,23 @@ class AuthManager:
             (time.time_ns(), row["token_id"]),
         )
         self.store.db.commit()
-        return Actor("agent", str(row["name"]))
+        try:
+            scopes = frozenset(json.loads(str(row["scopes_json"])))
+        except (TypeError, ValueError):
+            scopes = frozenset()
+        return Actor("agent", str(row["name"]), scopes)
 
     def list_agent_tokens(self) -> list[dict[str, Any]]:
         rows = self.store.db.execute(
-            "SELECT token_id, name, created_ns, last_used_ns, revoked_ns "
+            "SELECT token_id, name, created_ns, last_used_ns, revoked_ns, scopes_json "
             "FROM agent_tokens ORDER BY created_ns DESC"
         ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["scopes"] = json.loads(item.pop("scopes_json"))
+            result.append(item)
+        return result
 
     def revoke_agent_token(self, token_id: str, actor: Actor) -> None:
         row = self.store.db.execute(
@@ -168,4 +194,4 @@ class AuthManager:
             )
 
 
-__all__ = ["DEFAULT_DEVELOPER_PASSWORD", "Actor", "AuthManager"]
+__all__ = ["AGENT_TOKEN_SCOPES", "DEFAULT_DEVELOPER_PASSWORD", "Actor", "AuthManager"]

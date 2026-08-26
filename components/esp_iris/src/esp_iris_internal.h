@@ -10,6 +10,7 @@
 #include "esp_iris_state.h"
 #include "esp_partition.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 
 #define IRIS_LOG_RECORD_DATA_MAX 240U
@@ -121,6 +122,16 @@ esp_err_t iris_crash_build_metadata(iris_runtime_t *runtime, uint8_t *out,
                                     size_t capacity, size_t *out_size);
 esp_err_t iris_crash_read(iris_runtime_t *runtime, size_t offset,
                           size_t maximum, uint8_t *out, size_t *out_size);
+
+esp_err_t iris_files_init(iris_runtime_t *runtime);
+void iris_files_deinit(void);
+void iris_files_session_end(uint32_t session_id);
+bool iris_files_handle_frame(iris_runtime_t *runtime,
+                             const iris_decoded_frame_t *frame);
+bool iris_files_queue_next(iris_runtime_t *runtime);
+uint64_t iris_files_capabilities(void);
+uint32_t iris_files_allocated_bytes(void);
+uint32_t iris_files_static_bytes(void);
 
 esp_err_t iris_queue_frame(iris_runtime_t *runtime, uint8_t channel,
                            uint8_t type, uint16_t flags,

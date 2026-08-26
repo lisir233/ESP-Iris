@@ -126,6 +126,19 @@ bool esp_iris_media_is_streaming(esp_iris_channel_t channel)
     return false;
 }
 
+esp_err_t esp_iris_file_volume_register(
+    const esp_iris_file_volume_config_t *config)
+{
+    (void)config;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_file_volume_unregister(const char *id)
+{
+    (void)id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t esp_iris_pairing_token_get(char out[65])
 {
     if (out != NULL) {

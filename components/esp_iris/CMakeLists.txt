@@ -5,6 +5,7 @@ if(CONFIG_ESP_IRIS_ENABLE)
         "src/esp_iris_crash.c"
         "src/esp_iris_identity.c"
         "src/esp_iris_log.c"
+        "src/esp_iris_files.c"
         "src/esp_iris_platform.c"
         "src/esp_iris_services.c"
         "src/esp_iris_state.c"

@@ -59,7 +59,8 @@ is 4096 bytes. A large object uses service-specific OPEN/DATA/CLOSE frames;
 it is never placed in one oversized envelope.
 
 Channels are `CONTROL=0`, `LOG=1`, `EVENT=2`, `SCREEN=3`, `IMAGE=4`,
-`AUDIO=5`, `OTA=6`, and `CRASH=7`. Unknown types on a known channel produce a
+`AUDIO=5`, `OTA=6`, `CRASH=7`, and `FILE=8`. FILE is sent only when both peers
+recognize `CAP_FILE` (capability bit 13). Unknown types on a known channel produce a
 CONTROL ERROR when a response is possible. A future protocol version must use
 capability negotiation rather than silently reinterpreting an existing type.
 
@@ -181,6 +182,133 @@ The PC permits evidence download even when the embedded ELF SHA is incomplete,
 but sets `decode_eligible=true` only when a complete 64-character SHA matches
 the running firmware identity. Decoding against a nonmatching ELF is outside
 the protocol contract.
+
+## File service
+
+The optional FILE channel exposes only application-registered logical volumes.
+ESP-Iris never exports `/`, NVS, OTA partitions, coredumps, its log VFS, or any
+mount automatically. A target is encoded as a logical volume ID plus a canonical
+UTF-8 relative path:
+
+```text
+volume_length:u8, reserved:u8, path_length:u16
+volume[volume_length], path[path_length]
+```
+
+Volume IDs contain 1-15 ASCII letters, digits, `_`, or `-`. The empty path means
+the volume root. Nonempty paths cannot start or end with `/`, contain an empty,
+`.` or `..` component, contain `\`, NUL, or control bytes, or exceed 255 encoded
+bytes. ESP-IDF's supported LittleFS, SPIFFS, and FATFS VFS backends do not expose
+symbolic links; unsupported file kinds are omitted or rejected.
+
+Every FILE response begins with `status:u16, reserved:u16`. Status is a stable
+protocol value, not a platform `errno`: `OK=0`, `INVALID_ARGUMENT=1`,
+`NOT_FOUND=2`, `NOT_DIRECTORY=3`, `NOT_FILE=4`, `READ_ONLY=5`, `BUSY=6`,
+`NO_MEMORY=7`, `IO=8`, `NOT_SUPPORTED=9`, `CONFLICT=10`, `EXISTS=11`,
+`NOT_EMPTY=12`, `NO_SPACE=13`, and `HASH_MISMATCH=14`.
+
+Implemented FILE types are:
+
+| Type | Value | Request / response payload after status |
+|---|---:|---|
+| VOLUMES_REQUEST/RESPONSE | `0x01/0x02` | empty / `chunk_max:u16, path_max:u16, count:u8, reserved[3]`, then volume records |
+| STAT_REQUEST/RESPONSE | `0x03/0x04` | path target / metadata |
+| LIST_OPEN/OPENED | `0x05/0x06` | path target / `stream_id:u32` |
+| LIST_NEXT/DATA | `0x07/0x08` | empty / page header and at most one entry |
+| CLOSE/CLOSE_RESPONSE | `0x09/0x0a` | empty / empty |
+| READ_OPEN/OPENED | `0x0b/0x0c` | path target / stream metadata |
+| READ/DATA | `0x0d/0x0e` | read range / offset, total and bytes |
+| WRITE_OPEN/OPENED | `0x0f/0x10` | path target plus write declaration / stream ID and chunk maximum |
+| WRITE/ACK | `0x11/0x12` | strict offset and bytes / committed offset |
+| COMMIT/COMMIT_RESPONSE | `0x13/0x14` | SHA-256 / final metadata |
+| ABORT/ABORT_RESPONSE | `0x15/0x16` | empty / empty |
+| MKDIR/MKDIR_RESPONSE | `0x17/0x18` | path target / metadata |
+| DELETE/DELETE_RESPONSE | `0x19/0x1a` | path target / empty |
+| RENAME/RENAME_RESPONSE | `0x1b/0x1c` | same-volume source and destination / metadata |
+| WRITE_STATUS/WRITE_STATUS_RESPONSE | `0x1d/0x1e` | empty / resumable write state |
+
+A volume record is `id_length:u8, reserved:u8, capabilities:u16, id[]`.
+Capabilities are `READ=bit0`, `LIST=bit1`, `MTIME=bit2`, `WRITE=bit3`,
+`DELETE=bit4`, `MKDIR=bit5`, `RENAME=bit6`, `ATOMIC_REPLACE=bit7`, and
+`HASH=bit8`. `WRITE` always implies `HASH`; overwrite is rejected unless the
+product also declares `ATOMIC_REPLACE`. Common metadata is:
+
+```text
+kind:u8              # 1 regular file, 2 directory
+reserved:u8
+reserved:u16
+size:u64
+mtime_s:u64          # zero when unavailable
+opaque_etag:u64
+```
+
+LIST_OPEN returns the same nonzero stream ID in the envelope and payload and sets
+STREAM_BEGIN. LIST_NEXT carries that ID in the envelope. LIST_DATA is
+`end:u8, count:u8` after status; count is 0 or 1. An entry replaces metadata's
+first reserved byte with `name_length:u8` and appends `name[name_length]`.
+The terminal empty page sets `end bit0` and STREAM_END. Directory order and
+cursor replay are not snapshot semantics. CLOSE releases the stream.
+
+READ_OPEN similarly returns `stream_id:u32, total_size:u64, mtime_s:u64,
+opaque_etag:u64, chunk_max:u16, reserved:u16` and sets STREAM_BEGIN. READ is
+`offset:u64, maximum:u16, reserved:u16`; DATA is `flags:u16, offset:u64,
+total_size:u64, data[]` after status. Requests are stop-and-wait and offsets are
+64-bit. The last DATA sets STREAM_END and flags bit 0. Files are read by the
+dedicated bounded, low-priority file task; only the Iris worker writes frames.
+
+WRITE_OPEN appends the following declaration to a nonempty path target:
+
+```text
+total_size:u64
+if_match_etag:u64
+flags:u16              # bit0 overwrite, bit1 if-match is present
+reserved:u16
+```
+
+It creates an exclusive temporary file in the target's existing parent
+directory. Creating an existing target returns `EXISTS`; overwriting requires
+both the overwrite flag and the volume's `ATOMIC_REPLACE` capability. If-match
+compares the opaque target ETag before opening and the device checks the target
+again immediately before replacement. WRITE_OPENED returns
+`stream_id:u32, chunk_max:u16, reserved:u16` and sets STREAM_BEGIN.
+
+WRITE is `offset:u64, data_size:u16, reserved:u16, data[data_size]`. The offset
+must equal the current committed offset, data must not exceed either the
+declared total or chunk maximum, and ACK returns `committed_offset:u64`.
+Requests are stop-and-wait. After an ACK timeout, the host queries WRITE_STATUS
+instead of blindly retransmitting.
+
+COMMIT contains exactly the SHA-256 of the declared file. The device requires
+the exact declared byte count and hash, verifies that the destination did not
+change, then performs `fsync`, close, and same-directory rename. Only after the
+rename does it return final metadata and STREAM_END. It never degrades an
+advertised atomic replacement into an in-place write. The temporary file needs
+additional free space and is removed by ABORT, session loss, write failure, or
+failed commit.
+
+WRITE_STATUS uses the write stream ID and returns:
+
+```text
+committed_offset:u64
+expected_size:u64
+state:u8               # 1 active, 2 committed, 3 aborted
+reserved[3]
+result:u16              # stable FILE status for terminal state
+reserved:u16
+```
+
+The device retains the last terminal receipt for the session so a host can
+resolve a lost COMMIT response. A later WRITE_OPEN replaces that receipt.
+
+MKDIR creates exactly one directory. DELETE removes a regular file or an empty
+directory; recursive deletion is not defined. RENAME carries
+`volume_length:u8, reserved:u8, source_length:u16, destination_length:u16,
+reserved:u16, volume[], source[], destination[]`, stays within one logical
+volume, and never overwrites an existing destination. The volume root cannot
+be written, renamed, or deleted, and a directory cannot be moved below itself.
+Only one LIST, READ, or WRITE handle is active
+at a time; unrelated metadata operations remain bounded and mutations return
+BUSY while a handle is active.
 
 ## RPC and jobs
 

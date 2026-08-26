@@ -79,7 +79,25 @@ def _migration_2(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE operations ADD COLUMN progress_json TEXT")
 
 
-MIGRATIONS: tuple[Migration, ...] = (_migration_1, _migration_2)
+def _migration_3(db: sqlite3.Connection) -> None:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS agent_tokens ("
+        "token_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, "
+        "token_hash TEXT NOT NULL, created_ns INTEGER NOT NULL, "
+        "last_used_ns INTEGER, revoked_ns INTEGER, "
+        "scopes_json TEXT NOT NULL DEFAULT '[\"files.read\"]')"
+    )
+    columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(agent_tokens)").fetchall()
+    }
+    if "scopes_json" not in columns:
+        db.execute(
+            "ALTER TABLE agent_tokens ADD COLUMN scopes_json TEXT NOT NULL "
+            "DEFAULT '[\"files.read\"]'"
+        )
+
+
+MIGRATIONS: tuple[Migration, ...] = (_migration_1, _migration_2, _migration_3)
 LATEST_SCHEMA_VERSION = len(MIGRATIONS)
 
 

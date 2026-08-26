@@ -1,7 +1,7 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import type { Device } from "./types";
 
-export type Page = "devices" | "records" | "settings" | "docs";
+export type Page = "devices" | "files" | "records" | "settings" | "docs";
 
 type HeaderProps = {
   page: Page;
@@ -15,8 +15,8 @@ type HeaderProps = {
 };
 
 const labels = {
-  zh: { devices: "设备", records: "记录", settings: "设置", docs: "API 文档", develop: "开发模式", observe: "观察模式" },
-  en: { devices: "Devices", records: "Records", settings: "Settings", docs: "API Docs", develop: "Develop", observe: "Observe" },
+  zh: { devices: "设备", files: "文件", records: "记录", settings: "设置", docs: "API 文档", develop: "开发模式", observe: "观察模式" },
+  en: { devices: "Devices", files: "Files", records: "Records", settings: "Settings", docs: "API Docs", develop: "Develop", observe: "Observe" },
 };
 
 export function Header({ page, setPage, mode, transitioning, setMode, demo, language, setLanguage }: HeaderProps) {
@@ -25,7 +25,7 @@ export function Header({ page, setPage, mode, transitioning, setMode, demo, lang
     <header className="app-header">
       <div className="brand-lockup"><span className="brand-mark small">IR</span><span>ESP-IRIS</span></div>
       <nav aria-label="主导航">
-        {(["devices", "records", "settings"] as Page[]).map((item) => (
+        {(["devices", "files", "records", "settings"] as Page[]).map((item) => (
           <button key={item} className={page === item ? "active" : ""} onClick={() => setPage(item)}>{t[item]}</button>
         ))}
       </nav>

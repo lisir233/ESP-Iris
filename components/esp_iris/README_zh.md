@@ -8,7 +8,7 @@ ESP-Iris 减少嵌入式开发中不必要的编译和烧录时间，让设备�
 
 ESP-Iris 将调试和控制的 Web plane 移到 PC。每台 ESP32 只运行一条
 有界二进制链路和一个 worker task，通过 USB 或 TCP 提供日志、状态，
-以及可选的 RPC、媒体、崩溃证据、配对和 OTA 服务。设备侧不运行
+以及可选的 RPC、媒体、崩溃证据、配对、OTA 和有界文件服务。设备侧不运行
 HTTP server、WebSocket server、JSON parser、framebuffer mirror，也不进行
 媒体规模的内存分配。
 
@@ -152,8 +152,34 @@ USB/TCP 选择、认证、TLS、CLI、数据保留和开发命令参见
 | 崩溃证据 | 存在时只读提供 | 使用 `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` 分块 |
 | TCP 配对 | 默认关闭 | 一个 NVS token 和 challenge-HMAC 状态 |
 | OTA writer | 可配置 | 使用 `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES` 分块，不在 RAM 中缓存完整镜像 |
+| 文件服务 | 应用注册逻辑卷后才启用 | 一个文件任务、一个流和每块 `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` |
 
 媒体 channel 使用 credit 和 latest-chunk 策略，慢速主机不会在设备侧产生无界队列。
+
+应用必须在 `esp_iris_start()` 前只注册产品明确允许导出的目录：
+
+```c
+ESP_ERROR_CHECK(esp_iris_file_volume_register(
+    &(esp_iris_file_volume_config_t) {
+        .id = "cfg",
+        .base_path = "/littlefs/export",
+        .capabilities = ESP_IRIS_FILE_VOLUME_READ |
+                        ESP_IRIS_FILE_VOLUME_LIST |
+                        ESP_IRIS_FILE_VOLUME_MTIME |
+                        ESP_IRIS_FILE_VOLUME_WRITE |
+                        ESP_IRIS_FILE_VOLUME_DELETE |
+                        ESP_IRIS_FILE_VOLUME_MKDIR |
+                        ESP_IRIS_FILE_VOLUME_RENAME |
+                        ESP_IRIS_FILE_VOLUME_ATOMIC_REPLACE,
+    }));
+ESP_ERROR_CHECK(esp_iris_start());
+```
+
+线上路径始终相对于注册根目录。Gateway 以流式方式上传和下载，不会把完整文件
+缓存到内存，下载支持 HTTP Range。上传在目标同目录创建临时文件，使用严格
+offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换语义时才应
+声明 `ATOMIC_REPLACE`。重命名不覆盖已有目标，删除只接受文件和空目录，不开放
+递归删除或跨卷操作。
 
 ## 安全边界
 
@@ -161,7 +187,8 @@ USB/TCP 选择、认证、TLS、CLI、数据保留和开发命令参见
 - Raw TCP 配对默认关闭；开启后 token 保存在 NVS 中，链路通过随机 challenge
   证明持有 token，token 本身不在链路上传输。
 - Gateway 默认允许 loopback 免登录；非 loopback 客户端需要开发者登录或
-  命名 Agent Token。
+  命名 Agent Token。Agent Token 的文件权限分为 `files.read`、`files.write`
+  和 `files.delete`，新 token 默认只有 `files.read`。
 - HTTP 会向本地网络暴露凭据和设备数据，只应在可信开发网络使用；其他环境
   应开启 Gateway TLS。
 - Wi-Fi 密码、配对 token、TLS 私钥和 Agent Token 必须放在被忽略的本地配置

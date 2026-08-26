@@ -9,7 +9,7 @@ import random
 import struct
 import time
 import zlib
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 EventSink = Callable[[dict[str, Any]], Awaitable[None]]
@@ -70,6 +70,12 @@ class DemoHub:
                 "demo-c9d0e1f2", "Recovery Fixture", "recovery", "3.5.0", 0xC30C
             ),
         }
+        self._files = {
+            "app.json": b'{"device":"esp-iris","mode":"demo"}\n',
+            "README.txt": b"ESP-Iris streamed file service demo.\n",
+            "certs/device.pem": b"-----BEGIN CERTIFICATE-----\nDEMO\n-----END CERTIFICATE-----\n",
+        }
+        self._directories = {"", "certs"}
 
     @staticmethod
     def _device(
@@ -102,6 +108,7 @@ class DemoHub:
                 "audio",
                 "input",
                 "crash",
+                "files",
             ],
             "auth_mode": 0,
             "max_payload": 262144,
@@ -188,6 +195,235 @@ class DemoHub:
             "clock_offset_us": 818.0,
             "clock_uncertainty_us": 410.0,
             "demo": True,
+        }
+
+    async def file_volumes(self, device_id: str) -> dict[str, Any]:
+        self.get(device_id)
+        return {
+            "volumes": [
+                {
+                    "id": "cfg",
+                    "capabilities": 511,
+                    "capability_names": [
+                        "read",
+                        "list",
+                        "mtime",
+                        "write",
+                        "delete",
+                        "mkdir",
+                        "rename",
+                        "atomic_replace",
+                        "hash",
+                    ],
+                }
+            ],
+            "chunk_max": 1024,
+            "path_max": 255,
+        }
+
+    def _file_metadata(self, path: str) -> dict[str, Any]:
+        if path in self._directories:
+            digest = hashlib.sha256(f"directory:{path}".encode()).hexdigest()[:16]
+            return {"kind": "directory", "size": 0, "mtime_s": 1_777_000_000, "etag": digest}
+        try:
+            data = self._files[path]
+        except KeyError as exc:
+            raise KeyError(f"unknown demo file: {path}") from exc
+        return {
+            "kind": "file",
+            "size": len(data),
+            "mtime_s": 1_777_000_000,
+            "etag": hashlib.sha256(data).hexdigest()[:16],
+        }
+
+    async def file_stat(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]:
+        self.get(device_id)
+        if volume != "cfg":
+            raise KeyError(volume)
+        return {"volume": volume, "path": path, **self._file_metadata(path)}
+
+    async def file_list(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        *,
+        cursor: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        metadata = await self.file_stat(device_id, volume, path)
+        if metadata["kind"] != "directory":
+            raise ValueError("file list target is not a directory")
+        prefix = f"{path}/" if path else ""
+        names: set[str] = set()
+        for candidate in {*self._files, *self._directories}:
+            if not candidate.startswith(prefix):
+                continue
+            remainder = candidate[len(prefix) :]
+            if not remainder:
+                continue
+            names.add(remainder.split("/", 1)[0])
+        ordered = sorted(names)
+        selected = ordered[cursor : cursor + limit]
+        entries = []
+        for name in selected:
+            child = f"{prefix}{name}"
+            entries.append({"name": name, **self._file_metadata(child)})
+        next_cursor = cursor + len(selected) if cursor + len(selected) < len(ordered) else None
+        return {
+            "volume": volume,
+            "path": path,
+            "entries": entries,
+            "cursor": cursor,
+            "next_cursor": next_cursor,
+            "snapshot": False,
+        }
+
+    async def file_download(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        *,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]:
+        metadata = await self.file_stat(device_id, volume, path)
+        if metadata["kind"] != "file":
+            raise ValueError("file download target is not a regular file")
+        data = self._files[path]
+        end = len(data) if length is None else min(len(data), offset + length)
+        for position in range(offset, end, 1024):
+            await asyncio.sleep(0)
+            yield data[position : min(position + 1024, end)]
+
+    async def file_upload(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        chunks: AsyncIterator[bytes],
+        *,
+        total_size: int,
+        overwrite: bool = False,
+        if_match: str | None = None,
+        progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        self.get(device_id)
+        if volume != "cfg" or not path or path in self._directories:
+            raise ValueError("invalid demo upload target")
+        parent = path.rpartition("/")[0]
+        if parent not in self._directories:
+            raise KeyError(parent)
+        existing = self._files.get(path)
+        if existing is not None and not overwrite:
+            raise ValueError("demo file already exists")
+        if if_match is not None and (
+            existing is None
+            or hashlib.sha256(existing).hexdigest()[:16]
+            != if_match.removeprefix('W/').strip('"')
+        ):
+            raise ValueError("demo file etag conflict")
+        data = bytearray()
+        async for chunk in chunks:
+            data.extend(chunk)
+            if len(data) > total_size:
+                raise ValueError("upload exceeds declared size")
+            if progress is not None:
+                await progress(len(data), total_size)
+        if len(data) != total_size:
+            raise ValueError("upload ended before declared size")
+        self._files[path] = bytes(data)
+        return {
+            "volume": volume,
+            "path": path,
+            **self._file_metadata(path),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "replaced": existing is not None,
+        }
+
+    async def file_mkdir(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]:
+        self.get(device_id)
+        if volume != "cfg" or not path or path in self._directories or path in self._files:
+            raise ValueError("invalid or existing demo directory")
+        parent = path.rpartition("/")[0]
+        if parent not in self._directories:
+            raise KeyError(parent)
+        self._directories.add(path)
+        return {"volume": volume, "path": path, **self._file_metadata(path)}
+
+    async def file_delete(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]:
+        self.get(device_id)
+        if volume != "cfg" or not path:
+            raise ValueError("invalid demo delete target")
+        if path in self._files:
+            del self._files[path]
+        elif path in self._directories:
+            prefix = f"{path}/"
+            if any(item.startswith(prefix) for item in {*self._files, *self._directories}):
+                raise ValueError("demo directory is not empty")
+            self._directories.remove(path)
+        else:
+            raise KeyError(path)
+        return {"volume": volume, "path": path, "deleted": True}
+
+    async def file_rename(
+        self,
+        device_id: str,
+        volume: str,
+        source: str,
+        destination: str,
+    ) -> dict[str, Any]:
+        self.get(device_id)
+        if volume != "cfg" or not source or not destination:
+            raise ValueError("invalid demo rename target")
+        if destination in self._files or destination in self._directories:
+            raise ValueError("demo rename destination exists")
+        if source in self._directories and destination.startswith(f"{source}/"):
+            raise ValueError("a demo directory cannot be moved below itself")
+        parent = destination.rpartition("/")[0]
+        if parent not in self._directories:
+            raise KeyError(parent)
+        if source in self._files:
+            self._files[destination] = self._files.pop(source)
+        elif source in self._directories:
+            prefix = f"{source}/"
+            moved_files = {
+                destination + item[len(source) :]: data
+                for item, data in self._files.items()
+                if item.startswith(prefix)
+            }
+            moved_directories = {
+                destination + item[len(source) :]
+                for item in self._directories
+                if item.startswith(prefix)
+            }
+            self._files = {
+                item: data
+                for item, data in self._files.items()
+                if not item.startswith(prefix)
+            }
+            self._files.update(moved_files)
+            self._directories = {
+                item
+                for item in self._directories
+                if item != source and not item.startswith(prefix)
+            }
+            self._directories.add(destination)
+            self._directories.update(moved_directories)
+        else:
+            raise KeyError(source)
+        return {
+            "volume": volume,
+            "source": source,
+            "path": destination,
+            **self._file_metadata(destination),
         }
 
     async def crash_report(self, device_id: str) -> dict[str, Any]:

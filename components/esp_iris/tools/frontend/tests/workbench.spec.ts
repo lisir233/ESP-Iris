@@ -18,9 +18,10 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
     await page.getByRole("button", { name: "进入工作台" }).click();
   }
 
-  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveCount(3);
+  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveCount(4);
   await expect(page.getByRole("button", { name: "设备", exact: true })).toBeVisible();
   await expect(page.getByText("Camera Bench").first()).toBeVisible();
+  const selectedDeviceName = await page.locator(".device-row.selected strong").innerText();
   const observeMode = page.getByRole("button", { name: "观察模式", exact: true });
   if (await observeMode.isVisible().catch(() => false)) {
     await observeMode.click();
@@ -46,6 +47,38 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   await page.getByRole("tab", { name: "系统事件" }).click();
   await expect(page.getByText("gateway.started").first()).toBeVisible();
 
+  await page.getByRole("button", { name: "文件", exact: true }).click();
+  await expect(page.getByRole("heading", { name: selectedDeviceName })).toBeVisible();
+  await expect(page.getByRole("link", { name: "下载" }).first()).toBeVisible();
+  await page.getByLabel("选择上传文件").setInputFiles({
+    name: "browser.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("uploaded through the Files workbench\n"),
+  });
+  await expect(page.getByText("已上传 browser.txt", { exact: true })).toBeVisible();
+
+  page.once("dialog", (dialog) => void dialog.accept("browser-dir"));
+  await page.getByRole("button", { name: "新建目录", exact: true }).click();
+  await expect(page.getByText("已创建目录 browser-dir", { exact: true })).toBeVisible();
+
+  const browserFile = page.getByRole("row").filter({ hasText: "browser.txt" });
+  page.once("dialog", (dialog) => void dialog.accept("renamed.txt"));
+  await browserFile.getByRole("button", { name: "重命名", exact: true }).click();
+  await expect(page.getByText("已将 browser.txt 重命名为 renamed.txt", { exact: true })).toBeVisible();
+
+  const renamedFile = page.getByRole("row").filter({ hasText: "renamed.txt" });
+  page.once("dialog", (dialog) => void dialog.accept());
+  await renamedFile.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByText("已删除 renamed.txt", { exact: true })).toBeVisible();
+
+  const browserDirectory = page.getByRole("row").filter({ hasText: "browser-dir" });
+  page.once("dialog", (dialog) => void dialog.accept());
+  await browserDirectory.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByText("已删除 browser-dir", { exact: true })).toBeVisible();
+  await page.getByText("certs", { exact: true }).click();
+  await expect(page.getByText("device.pem", { exact: true })).toBeVisible();
+  await page.screenshot({ path: process.env.ESP_IRIS_FILES_SCREENSHOT || "/tmp/esp-iris-files-page.png", fullPage: true });
+
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.getByText("Agent Token", { exact: true })).toBeVisible();
   await expect(page.getByText("网关信息", { exact: true })).toBeVisible();
@@ -65,7 +98,7 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   await page.getByRole("button", { name: "EN", exact: true }).click();
   await expect(page.getByRole("button", { name: "Devices", exact: true })).toBeVisible();
   const untranslated = new Set<string>();
-  for (const destination of ["Records", "Settings", "API Docs", "Devices"]) {
+  for (const destination of ["Files", "Records", "Settings", "API Docs", "Devices"]) {
     await page.getByRole("button", { name: destination, exact: true }).click();
     const values = await page.locator("body").evaluate((body) => {
       const found = new Set<string>();

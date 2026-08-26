@@ -1,6 +1,8 @@
 import json
 import zipfile
 
+import pytest
+
 from iris_gateway.security import DEFAULT_DEVELOPER_PASSWORD, Actor, AuthManager
 from iris_gateway.store import GatewayStore
 
@@ -16,8 +18,15 @@ def test_password_named_tokens_cursor_and_export(tmp_path) -> None:
     developer = Actor("developer", "Developer")
     created = auth.create_agent_token("codex-a", developer)
     assert created["token"].startswith("iris_")
-    assert auth.authenticate_bearer(created["token"]) == Actor("agent", "codex-a")
-    assert "token" not in auth.list_agent_tokens()[0]
+    assert created["scopes"] == ["files.read"]
+    assert auth.authenticate_bearer(created["token"]) == Actor(
+        "agent", "codex-a", frozenset({"files.read"})
+    )
+    saved_token = auth.list_agent_tokens()[0]
+    assert "token" not in saved_token
+    assert saved_token["scopes"] == ["files.read"]
+    with pytest.raises(ValueError):
+        auth.create_agent_token("scope-less", developer, [])
 
     first = store.append_event("log", {"kind": "log", "text": "I (1) app: ok"}, "device-a")
     second = store.append_event("device", {"kind": "device_event", "event_name": "healthy"}, "device-a")

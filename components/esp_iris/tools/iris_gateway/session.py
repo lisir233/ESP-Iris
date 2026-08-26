@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .files import DeviceFiles
 from .link import Link
 from .protocol import (
     Channel,
@@ -76,6 +77,7 @@ class DeviceInfo:
             10: "image",
             11: "audio",
             12: "mirror",
+            13: "files",
         }
         names = [name for bit, name in bits.items() if self.capabilities & (1 << bit)]
         names.append("restart")
@@ -123,15 +125,17 @@ class DeviceSession:
         self._request_lock = asyncio.Lock()
         self._pending: dict[int, asyncio.Future[Frame]] = {}
         self._request_id = 0
-        self._sequence = [0] * 8
-        self._last_rx_sequence: list[int | None] = [None] * 8
+        channel_count = max(int(channel) for channel in Channel) + 1
+        self._sequence = [0] * channel_count
+        self._last_rx_sequence: list[int | None] = [None] * channel_count
         self._closed = False
         self._ready = asyncio.Event()
         self._clock_task: asyncio.Task[None] | None = None
         self._log_credit = 0
         self._crash_chunk_max = 1024
         self._ready_announced = False
-        self._media_credit = [0] * 8
+        self._media_credit = [0] * channel_count
+        self.files = DeviceFiles(self)
         self.clock_offset_us: float | None = None
         self.clock_uncertainty_us: float | None = None
 
@@ -208,6 +212,8 @@ class DeviceSession:
         type_: int,
         payload: bytes = b"",
         timeout: float = 3.0,
+        *,
+        stream_id: int = 0,
     ) -> Frame:
         async with self._request_lock:
             await self.wait_ready(timeout)
@@ -215,7 +221,13 @@ class DeviceSession:
             future = asyncio.get_running_loop().create_future()
             self._pending[request_id] = future
             try:
-                await self._send(channel, type_, payload, request_id=request_id)
+                await self._send(
+                    channel,
+                    type_,
+                    payload,
+                    request_id=request_id,
+                    stream_id=stream_id,
+                )
                 return await asyncio.wait_for(future, timeout)
             finally:
                 self._pending.pop(request_id, None)

@@ -76,3 +76,26 @@ export type Audit = {
   details: Record<string, unknown>;
   created_ns: number;
 };
+
+export type FileVolume = {
+  id: string;
+  capabilities: number;
+  capability_names: string[];
+};
+
+export type FileEntry = {
+  name: string;
+  kind: "file" | "directory";
+  size: number;
+  mtime_s: number;
+  etag: string;
+};
+
+export type FileList = {
+  volume: string;
+  path: string;
+  entries: FileEntry[];
+  cursor: number;
+  next_cursor: number | null;
+  snapshot: false;
+};

@@ -61,7 +61,8 @@ page when `dist/index.html` is absent.
 ## Evaluate without hardware
 
 Demo mode creates virtual normal/recovery devices and exercises logs, RPC/jobs,
-screen/input, media, OTA, restart, disconnect, and crash evidence:
+screen/input, media, OTA, restart, disconnect, crash evidence, and the
+file browser with upload and metadata mutations:
 
 ```bash
 python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web --demo
@@ -161,12 +162,35 @@ the Gateway authorizes the actual TCP peer.
 | Overview | Device identity, connection, firmware, health, and current status |
 | Logs | Live and retained device logs |
 | Workspace | RPC, console, screen/input, media, firmware, OTA, and restart actions |
+| Files | Product-registered logical volumes, paginated directories, streamed upload/download, rename, mkdir, and safe delete |
 | Operations | Durable long-running operation state and progress |
 | Records | Sessions, evidence, artifacts, and retained history |
 | Settings | Access mode, credentials, tokens, TLS, and system configuration |
 
 The interactive OpenAPI view is available at `/docs`; the machine-readable
 contract is `/v1/openapi.json`; metrics are exposed at `/v1/metrics`.
+
+### File API
+
+The file endpoints address only product-registered logical volumes:
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /v1/devices/{id}/files/volumes` | Volume capabilities and transfer limits |
+| `GET /v1/devices/{id}/files` | Paginated directory list |
+| `GET /v1/devices/{id}/files/stat` | File or directory metadata and opaque ETag |
+| `GET /v1/devices/{id}/file` | Stream download, including HTTP Range |
+| `PUT /v1/devices/{id}/file` | Stream create or atomic replacement |
+| `POST /v1/devices/{id}/directories` | Create one directory |
+| `POST /v1/devices/{id}/file-rename` | Same-volume rename without overwrite |
+| `DELETE /v1/devices/{id}/file` | Delete a file or empty directory |
+
+Upload requires `Content-Length` and is limited to 32 MiB by the Gateway. Use
+`overwrite=true` with `If-Match` for replacement. The Gateway forwards request
+chunks directly to the device, records only path/size/hash/result metadata,
+and serializes every mutation with other writes to that device. Agent Tokens
+need `files.read`, `files.write`, or `files.delete` as appropriate; new tokens
+default to `files.read`.
 
 ## Command-line client
 

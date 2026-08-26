@@ -705,7 +705,10 @@ esp_err_t esp_iris_pairing_token_set(const char token[65])
 
 esp_err_t iris_services_init(iris_runtime_t *runtime)
 {
-    (void)runtime;
+    esp_err_t err = iris_files_init(runtime);
+    if (err != ESP_OK) {
+        return err;
+    }
 #if CONFIG_ESP_IRIS_TCP_PAIRING
     iris_service_state_t *state = service_state(true);
     return state == NULL ? ESP_ERR_NO_MEM : pairing_load_or_create(state, false);
@@ -737,6 +740,7 @@ static void ota_abort(iris_service_state_t *state, esp_err_t result)
 void iris_services_deinit(iris_runtime_t *runtime)
 {
     (void)runtime;
+    iris_files_deinit();
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
         return;
@@ -772,7 +776,7 @@ void iris_services_session_begin(iris_runtime_t *runtime)
 
 void iris_services_session_end(iris_runtime_t *runtime)
 {
-    (void)runtime;
+    iris_files_session_end(runtime->session_id);
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
         return;
@@ -806,7 +810,8 @@ uint64_t iris_services_capabilities(void)
 {
     uint64_t result = ESP_IRIS_CAP_RPC | ESP_IRIS_CAP_JOBS |
                       ESP_IRIS_CAP_SCREEN | ESP_IRIS_CAP_IMAGE |
-                      ESP_IRIS_CAP_AUDIO | ESP_IRIS_CAP_MIRROR;
+                      ESP_IRIS_CAP_AUDIO | ESP_IRIS_CAP_MIRROR |
+                      iris_files_capabilities();
 #if CONFIG_ESP_IRIS_OTA
     if (esp_ota_get_next_update_partition(NULL) != NULL) {
         result |= ESP_IRIS_CAP_OTA;
@@ -1694,7 +1699,8 @@ bool iris_services_handle_frame(iris_runtime_t *runtime,
                handle_job(runtime, frame) ||
                handle_restart(runtime, frame);
     }
-    return handle_media(runtime, frame) || handle_ota(runtime, frame);
+    return iris_files_handle_frame(runtime, frame) ||
+           handle_media(runtime, frame) || handle_ota(runtime, frame);
 }
 
 static bool queue_job_event(iris_runtime_t *runtime,
@@ -1798,6 +1804,9 @@ static bool queue_media(iris_runtime_t *runtime,
 
 bool iris_services_queue_next(iris_runtime_t *runtime)
 {
+    if (iris_files_queue_next(runtime)) {
+        return true;
+    }
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
         return false;
@@ -1820,10 +1829,12 @@ void iris_services_poll(iris_runtime_t *runtime)
 uint32_t iris_services_allocated_bytes(void)
 {
     iris_service_state_t *state = service_state(false);
-    return valid_state(state) ? state->allocated_bytes : 0;
+    return (valid_state(state) ? state->allocated_bytes : 0) +
+        iris_files_allocated_bytes();
 }
 
 uint32_t iris_services_static_bytes(void)
 {
-    return sizeof(s_services) + sizeof(s_services_lock);
+    return sizeof(s_services) + sizeof(s_services_lock) +
+        iris_files_static_bytes();
 }

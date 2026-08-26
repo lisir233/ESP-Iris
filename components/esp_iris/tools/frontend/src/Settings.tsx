@@ -2,12 +2,13 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, formatTime } from "./api";
 import PageHeading from "./PageHeading";
 
-type Token = { token_id: string; name: string; created_ns: number; last_used_ns?: number; revoked_ns?: number; token?: string };
+type Token = { token_id: string; name: string; scopes: string[]; created_ns: number; last_used_ns?: number; revoked_ns?: number; token?: string };
 type Props = { mode: "develop" | "observe"; demo: boolean; localAuthRequired: boolean; onOpenDocs: () => void };
 
 export default function Settings({ mode, demo, localAuthRequired, onOpenDocs }: Props) {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [name, setName] = useState("");
+  const [tokenProfile, setTokenProfile] = useState("read");
   const [shownToken, setShownToken] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -21,7 +22,12 @@ export default function Settings({ mode, demo, localAuthRequired, onOpenDocs }: 
 
   async function createToken(event: FormEvent) {
     event.preventDefault();
-    const result = await api<Token>("/v1/auth/tokens", { method: "POST", body: JSON.stringify({ name }), headers: { "Content-Type": "application/json" } });
+    const scopes = tokenProfile === "manage"
+      ? ["files.read", "files.write", "files.delete"]
+      : tokenProfile === "write"
+        ? ["files.read", "files.write"]
+        : ["files.read"];
+    const result = await api<Token>("/v1/auth/tokens", { method: "POST", body: JSON.stringify({ name, scopes }), headers: { "Content-Type": "application/json" } });
     setShownToken(result.token || "");
     setName("");
     await refreshTokens();
@@ -68,9 +74,9 @@ export default function Settings({ mode, demo, localAuthRequired, onOpenDocs }: 
 
       <section className="settings-section settings-wide">
         <div className="panel-title"><span>Agent Token</span></div>
-        <form className="inline-form" onSubmit={createToken}><input placeholder="Token 名称" value={name} onChange={(event) => setName(event.target.value)} required /><button className="primary-button">创建 Token</button></form>
+        <form className="inline-form" onSubmit={createToken}><input placeholder="Token 名称" value={name} onChange={(event) => setName(event.target.value)} required /><select aria-label="Token 文件权限" value={tokenProfile} onChange={(event) => setTokenProfile(event.target.value)}><option value="read">文件只读</option><option value="write">文件读写</option><option value="manage">文件完全管理</option></select><button className="primary-button">创建 Token</button></form>
         {shownToken && <div className="token-once"><strong>仅显示一次</strong><code>{shownToken}</code><button onClick={() => navigator.clipboard.writeText(shownToken)}>复制</button></div>}
-        <div className="token-list">{tokens.map((token) => <div key={token.token_id}><span className={`token-icon ${token.revoked_ns ? "revoked" : ""}`}>A</span><p><strong>{token.name}</strong><small>{token.token_id} · 创建于 {formatTime(token.created_ns)} · 最近使用 {formatTime(token.last_used_ns)}</small></p><em>{token.revoked_ns ? "已撤销" : "有效"}</em>{!token.revoked_ns && <button onClick={() => revoke(token.token_id)}>撤销</button>}</div>)}</div>
+        <div className="token-list">{tokens.map((token) => <div key={token.token_id}><span className={`token-icon ${token.revoked_ns ? "revoked" : ""}`}>A</span><p><strong>{token.name}</strong><small>{token.token_id} · {token.scopes.join(", ")} · 创建于 {formatTime(token.created_ns)} · 最近使用 {formatTime(token.last_used_ns)}</small></p><em>{token.revoked_ns ? "已撤销" : "有效"}</em>{!token.revoked_ns && <button onClick={() => revoke(token.token_id)}>撤销</button>}</div>)}</div>
       </section>
 
       <section className="settings-section">

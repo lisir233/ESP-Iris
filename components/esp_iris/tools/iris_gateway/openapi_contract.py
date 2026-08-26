@@ -35,6 +35,26 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         "/v1/events": {"get": {"summary": "Cursor-based event history"}},
         "/v1/events/ws": {"get": {"summary": "Resumable event WebSocket"}},
         "/v1/operations": {"get": {"summary": "Device operation records"}},
+        "/v1/devices/{device_id}/files/volumes": {
+            "get": {"summary": "Registered file volumes and capabilities"}
+        },
+        "/v1/devices/{device_id}/files/stat": {
+            "get": {"summary": "File or directory metadata"}
+        },
+        "/v1/devices/{device_id}/files": {
+            "get": {"summary": "Paginated directory entries"}
+        },
+        "/v1/devices/{device_id}/file": {
+            "get": {"summary": "Stream a file with HTTP Range support"},
+            "put": {"summary": "Stream a create or atomic file replacement"},
+            "delete": {"summary": "Delete a file or empty directory"},
+        },
+        "/v1/devices/{device_id}/directories": {
+            "post": {"summary": "Create one directory"}
+        },
+        "/v1/devices/{device_id}/file-rename": {
+            "post": {"summary": "Rename within one logical volume"}
+        },
         "/v1/firmware-artifacts": {
             "get": {"summary": "Archived firmware bundles"},
             "post": {"summary": "Archive BIN, ELF and map as one validated bundle"},

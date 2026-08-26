@@ -6,7 +6,7 @@ import contextlib
 import os
 import struct
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from .discovery import discover_iris_usb_devices
@@ -421,6 +421,84 @@ class IrisHub:
         result["firmware_mode"] = endpoint.get("firmware_mode", "unknown")
         result["endpoint"] = session.link.endpoint
         return result
+
+    async def file_volumes(self, device_id: str) -> dict[str, Any]:
+        return await self.get(device_id).files.volumes()
+
+    async def file_stat(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]:
+        return await self.get(device_id).files.stat(volume, path)
+
+    async def file_list(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        *,
+        cursor: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return await self.get(device_id).files.list_directory(
+            volume, path, cursor=cursor, limit=limit
+        )
+
+    async def file_download(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        *,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]:
+        async for chunk in self.get(device_id).files.read_chunks(
+            volume, path, offset=offset, length=length
+        ):
+            yield chunk
+
+    async def file_upload(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        chunks: AsyncIterator[bytes],
+        *,
+        total_size: int,
+        overwrite: bool = False,
+        if_match: str | None = None,
+        progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        return await self.get(device_id).files.upload(
+            volume,
+            path,
+            chunks,
+            total_size=total_size,
+            overwrite=overwrite,
+            if_match=if_match,
+            progress=progress,
+        )
+
+    async def file_mkdir(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]:
+        return await self.get(device_id).files.mkdir(volume, path)
+
+    async def file_delete(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]:
+        return await self.get(device_id).files.delete(volume, path)
+
+    async def file_rename(
+        self,
+        device_id: str,
+        volume: str,
+        source: str,
+        destination: str,
+    ) -> dict[str, Any]:
+        return await self.get(device_id).files.rename(
+            volume, source, destination
+        )
 
     async def crash_report(self, device_id: str) -> dict[str, Any]:
         return await self.get(device_id).crash_report()

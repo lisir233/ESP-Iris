@@ -28,6 +28,7 @@ class Channel(enum.IntEnum):
     AUDIO = 5
     OTA = 6
     CRASH = 7
+    FILE = 8
 
 
 class Transport(enum.IntEnum):
@@ -95,6 +96,57 @@ class OtaType(enum.IntEnum):
     END_RESPONSE = 0x06
     CANCEL = 0x07
     STATUS = 0x08
+
+
+class FileType(enum.IntEnum):
+    VOLUMES_REQUEST = 0x01
+    VOLUMES_RESPONSE = 0x02
+    STAT_REQUEST = 0x03
+    STAT_RESPONSE = 0x04
+    LIST_OPEN = 0x05
+    LIST_OPENED = 0x06
+    LIST_NEXT = 0x07
+    LIST_DATA = 0x08
+    CLOSE = 0x09
+    CLOSE_RESPONSE = 0x0A
+    READ_OPEN = 0x0B
+    READ_OPENED = 0x0C
+    READ = 0x0D
+    DATA = 0x0E
+    WRITE_OPEN = 0x0F
+    WRITE_OPENED = 0x10
+    WRITE = 0x11
+    WRITE_ACK = 0x12
+    COMMIT = 0x13
+    COMMIT_RESPONSE = 0x14
+    ABORT = 0x15
+    ABORT_RESPONSE = 0x16
+    MKDIR = 0x17
+    MKDIR_RESPONSE = 0x18
+    DELETE = 0x19
+    DELETE_RESPONSE = 0x1A
+    RENAME = 0x1B
+    RENAME_RESPONSE = 0x1C
+    WRITE_STATUS = 0x1D
+    WRITE_STATUS_RESPONSE = 0x1E
+
+
+class FileStatus(enum.IntEnum):
+    OK = 0
+    INVALID_ARGUMENT = 1
+    NOT_FOUND = 2
+    NOT_DIRECTORY = 3
+    NOT_FILE = 4
+    READ_ONLY = 5
+    BUSY = 6
+    NO_MEMORY = 7
+    IO = 8
+    NOT_SUPPORTED = 9
+    CONFLICT = 10
+    EXISTS = 11
+    NOT_EMPTY = 12
+    NO_SPACE = 13
+    HASH_MISMATCH = 14
 
 
 class JobState(enum.IntEnum):
@@ -216,7 +268,7 @@ def encode_frame(frame: Frame) -> bytes:
     if len(payload) > MAX_PAYLOAD:
         raise ProtocolError(f"payload exceeds {MAX_PAYLOAD} bytes")
     channel = _wire_uint("channel", frame.channel, 8)
-    if channel > int(Channel.CRASH):
+    if channel > int(Channel.FILE):
         raise ProtocolError("invalid channel")
     header = HEADER.pack(
         MAGIC,
@@ -263,7 +315,7 @@ def decode_frame(encoded: bytes) -> Frame:
     ) = fields
     if magic != MAGIC or version != VERSION or header_size != HEADER_SIZE:
         raise ProtocolError("unsupported frame header")
-    if reserved != 0 or channel > int(Channel.CRASH):
+    if reserved != 0 or channel > int(Channel.FILE):
         raise ProtocolError("invalid reserved field or channel")
     if payload_size > MAX_PAYLOAD or len(plain) != HEADER_SIZE + payload_size + 4:
         raise ProtocolError("payload size mismatch")

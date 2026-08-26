@@ -9,7 +9,7 @@ details.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
 ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -22,6 +22,61 @@ class GatewayHub(Protocol):
     def list_endpoints(self) -> list[dict[str, Any]]: ...
 
     async def status(self, device_id: str) -> dict[str, Any]: ...
+
+    async def file_volumes(self, device_id: str) -> dict[str, Any]: ...
+
+    async def file_stat(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]: ...
+
+    async def file_list(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        *,
+        cursor: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]: ...
+
+    def file_download(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        *,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]: ...
+
+    async def file_upload(
+        self,
+        device_id: str,
+        volume: str,
+        path: str,
+        chunks: AsyncIterator[bytes],
+        *,
+        total_size: int,
+        overwrite: bool = False,
+        if_match: str | None = None,
+        progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def file_mkdir(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]: ...
+
+    async def file_delete(
+        self, device_id: str, volume: str, path: str
+    ) -> dict[str, Any]: ...
+
+    async def file_rename(
+        self,
+        device_id: str,
+        volume: str,
+        source: str,
+        destination: str,
+    ) -> dict[str, Any]: ...
 
     async def crash_report(self, device_id: str) -> dict[str, Any]: ...
 

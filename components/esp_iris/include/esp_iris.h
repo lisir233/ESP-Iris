@@ -113,6 +113,15 @@ typedef struct {
     void *user_ctx;
 } esp_iris_screen_backend_t;
 
+#define ESP_IRIS_FILE_VOLUME_ID_MAX 15U
+#define ESP_IRIS_FILE_PATH_MAX 255U
+
+typedef struct {
+    const char *id;
+    const char *base_path;
+    uint32_t capabilities;
+} esp_iris_file_volume_config_t;
+
 /* Idempotent. Configuration comes exclusively from Kconfig and NVS. */
 esp_err_t esp_iris_start(void);
 esp_err_t esp_iris_stop(void);
@@ -163,6 +172,14 @@ esp_err_t esp_iris_media_submit(esp_iris_channel_t channel,
                                 uint32_t frame_id, uint16_t flags,
                                 const void *data, size_t size);
 bool esp_iris_media_is_streaming(esp_iris_channel_t channel);
+
+/* Register product-owned logical volumes before esp_iris_start(). Paths sent
+ * on the wire are UTF-8 relative paths and are resolved only below base_path.
+ * Capabilities explicitly opt each volume into read and mutation operations;
+ * write data is hashed and staged in a same-directory temporary file. */
+esp_err_t esp_iris_file_volume_register(
+    const esp_iris_file_volume_config_t *config);
+esp_err_t esp_iris_file_volume_unregister(const char *id);
 
 /* M10: only supported when TCP pairing is enabled. The token is 64 lowercase
  * hex characters plus NUL and is stored as 32 random bytes in NVS. */

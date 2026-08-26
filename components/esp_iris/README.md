@@ -10,7 +10,7 @@ device-development workflow.
 
 ESP-Iris moves the debug and control Web plane to the PC. Each ESP32 runs a
 bounded binary link with one worker task and exposes logs, status, and optional
-RPC, media, crash, pairing, and OTA services over USB or TCP. It does not run
+RPC, media, crash, pairing, OTA, and bounded file services over USB or TCP. It does not run
 an HTTP server, WebSocket server, JSON parser, framebuffer mirror, or
 allocate media-sized buffers.
 
@@ -162,9 +162,38 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 | Crash evidence | Read-only when present | Chunked by `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` |
 | TCP pairing | Disabled by default | One NVS token and challenge-HMAC state |
 | OTA writer | Configurable | Chunked by `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES`; no full image is buffered in RAM |
+| File service | Disabled until the application registers a logical volume | One file task, one stream, and `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` per chunk |
 
 The component uses credit-based channels and a latest-chunk policy for media.
 A slow host cannot create an unbounded device-side queue.
+
+Register only the directories that the product intentionally exposes, before
+calling `esp_iris_start()`:
+
+```c
+ESP_ERROR_CHECK(esp_iris_file_volume_register(
+    &(esp_iris_file_volume_config_t) {
+        .id = "cfg",
+        .base_path = "/littlefs/export",
+        .capabilities = ESP_IRIS_FILE_VOLUME_READ |
+                        ESP_IRIS_FILE_VOLUME_LIST |
+                        ESP_IRIS_FILE_VOLUME_MTIME |
+                        ESP_IRIS_FILE_VOLUME_WRITE |
+                        ESP_IRIS_FILE_VOLUME_DELETE |
+                        ESP_IRIS_FILE_VOLUME_MKDIR |
+                        ESP_IRIS_FILE_VOLUME_RENAME |
+                        ESP_IRIS_FILE_VOLUME_ATOMIC_REPLACE,
+    }));
+ESP_ERROR_CHECK(esp_iris_start());
+```
+
+Paths sent over the wire are relative to the registered root. Downloads and
+uploads are streamed through the Gateway without buffering a complete file;
+downloads support HTTP Range. Uploads use a same-directory temporary file,
+strict offset ACKs, SHA-256, `fsync`, and rename. Declare `ATOMIC_REPLACE` only
+when the backing VFS provides the required replacement behavior. Rename never
+overwrites, delete accepts only files and empty directories, and recursive or
+cross-volume operations are not exposed.
 
 ## Security model
 
@@ -172,7 +201,9 @@ A slow host cannot create an unbounded device-side queue.
 - Raw TCP pairing is optional and disabled by default. When enabled, the token
   remains in NVS and the link proves possession using a fresh challenge.
 - Loopback Gateway access is authentication-free by default. Non-loopback
-  clients require a developer login or named Agent Token.
+  clients require a developer login or named Agent Token. File access by Agent
+  Token is separated into `files.read`, `files.write`, and `files.delete`
+  scopes; new tokens default to `files.read`.
 - Plain HTTP exposes credentials and device data to the local network. Use it
   only on a trusted development LAN, or enable Gateway TLS.
 - Wi-Fi credentials, pairing tokens, TLS private keys, and Agent Tokens must

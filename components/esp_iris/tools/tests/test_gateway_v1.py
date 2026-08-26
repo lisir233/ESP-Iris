@@ -317,6 +317,68 @@ def test_named_agent_token_can_switch_mode_without_approval(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_file_mutations_require_explicit_agent_scopes(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        service = GatewayService(
+            store, instance_id="test", demo=True, require_local_auth=True
+        )
+        service.auth.set_initial_password("dev-password")
+        reader = service.auth.create_agent_token(
+            "file-reader", Actor("developer", "Developer")
+        )
+        manager = service.auth.create_agent_token(
+            "file-manager",
+            Actor("developer", "Developer"),
+            {"files.read", "files.write", "files.delete"},
+        )
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            reader_headers = {"Authorization": f"Bearer {reader['token']}"}
+            readable = await client.get(
+                "/v1/devices/demo-a1b2c3d4/files/volumes",
+                headers=reader_headers,
+            )
+            assert readable.status == 200
+            forbidden = await client.put(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "agent.bin"},
+                data=b"reader-cannot-write",
+                headers=reader_headers,
+            )
+            assert forbidden.status == 403
+            assert (await forbidden.json())["error"] == {
+                "code": "insufficient_scope",
+                "message": "file operation requires the files.write scope",
+                "details": {"required_scope": "files.write"},
+            }
+
+            manager_headers = {"Authorization": f"Bearer {manager['token']}"}
+            uploaded = await client.put(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "agent.bin"},
+                data=b"manager-can-write",
+                headers=manager_headers,
+            )
+            assert uploaded.status == 201
+            deleted = await client.delete(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "agent.bin"},
+                headers=manager_headers,
+            )
+            assert deleted.status == 200
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
 def test_gateway_restart_always_defaults_to_develop(tmp_path) -> None:
     store = GatewayStore(tmp_path)
     store.set_setting("mode", "observe")
@@ -493,3 +555,130 @@ def test_local_auth_cli_is_opt_in() -> None:
     )
     assert console.ctl_command == "console"
     assert console.line == ["iris_info"]
+
+
+def test_file_api_lists_and_streams_demo_volume(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            volumes = await client.get("/v1/devices/demo-a1b2c3d4/files/volumes")
+            assert volumes.status == 200
+            assert (await volumes.json())["volumes"][0]["id"] == "cfg"
+
+            listing = await client.get(
+                "/v1/devices/demo-a1b2c3d4/files",
+                params={"volume": "cfg", "path": "", "limit": "2"},
+            )
+            assert listing.status == 200
+            page = await listing.json()
+            assert len(page["entries"]) == 2
+            assert page["next_cursor"] == 2
+            assert page["snapshot"] is False
+
+            downloaded = await client.get(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "app.json"},
+            )
+            content = await downloaded.read()
+            assert downloaded.status == 200
+            assert content == b'{"device":"esp-iris","mode":"demo"}\n'
+            assert downloaded.headers["Accept-Ranges"] == "bytes"
+            assert downloaded.headers["Content-Length"] == str(len(content))
+
+            partial = await client.get(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "app.json"},
+                headers={"Range": "bytes=1-5"},
+            )
+            assert partial.status == 206
+            assert await partial.read() == content[1:6]
+            assert partial.headers["Content-Range"] == f"bytes 1-5/{len(content)}"
+
+            invalid_range = await client.get(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "app.json"},
+                headers={"Range": "bytes=999-"},
+            )
+            assert invalid_range.status == 416
+
+            uploaded = await client.put(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "new.bin"},
+                data=b"streamed-upload",
+                headers={"X-Operation-ID": "file-upload-new"},
+            )
+            assert uploaded.status == 201
+            upload_body = await uploaded.json()
+            assert upload_body["file"]["size"] == len(b"streamed-upload")
+            assert upload_body["operation"]["action"] == "file.upload"
+            assert "content" not in upload_body["operation"]["params"]
+
+            app_stat = await client.get(
+                "/v1/devices/demo-a1b2c3d4/files/stat",
+                params={"volume": "cfg", "path": "app.json"},
+            )
+            app_etag = (await app_stat.json())["etag"]
+            replaced = await client.put(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={
+                    "volume": "cfg",
+                    "path": "app.json",
+                    "overwrite": "true",
+                },
+                data=b"replacement",
+                headers={"If-Match": f'W/"{app_etag}"'},
+            )
+            assert replaced.status == 200
+            assert (await replaced.json())["file"]["replaced"] is True
+
+            created_directory = await client.post(
+                "/v1/devices/demo-a1b2c3d4/directories",
+                json={"volume": "cfg", "path": "uploads"},
+            )
+            assert created_directory.status == 201
+            assert (await created_directory.json())["directory"]["kind"] == "directory"
+
+            renamed = await client.post(
+                "/v1/devices/demo-a1b2c3d4/file-rename",
+                json={
+                    "volume": "cfg",
+                    "source": "new.bin",
+                    "destination": "uploads/new.bin",
+                },
+            )
+            assert renamed.status == 200
+            assert (await renamed.json())["file"]["path"] == "uploads/new.bin"
+
+            nonempty = await client.delete(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "uploads"},
+            )
+            assert nonempty.status == 400
+            deleted_file = await client.delete(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "uploads/new.bin"},
+            )
+            assert deleted_file.status == 200
+            deleted_directory = await client.delete(
+                "/v1/devices/demo-a1b2c3d4/file",
+                params={"volume": "cfg", "path": "uploads"},
+            )
+            assert deleted_directory.status == 200
+
+            await client.put("/v1/mode", json={"mode": "observe"})
+            blocked = await client.get(
+                "/v1/devices/demo-a1b2c3d4/files/volumes"
+            )
+            assert blocked.status == 423
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
