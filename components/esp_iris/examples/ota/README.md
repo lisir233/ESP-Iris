@@ -41,6 +41,7 @@ rollback-enabled bootloader:
 ```bash
 idf.py -C components/esp_iris/examples/ota \
   -B build-ota-recovery \
+  -D SDKCONFIG="$PWD/build-ota-recovery/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
 
 idf.py -C components/esp_iris/examples/ota \
@@ -54,10 +55,12 @@ Use a UART or USB Serial/JTAG programming interface for this full flash.
 
 ```bash
 idf.py -C components/esp_iris/examples/ota \
-  -B build-ota-a build
+  -B build-ota-a \
+  -D SDKCONFIG="$PWD/build-ota-a/sdkconfig" build
 
 idf.py -C components/esp_iris/examples/ota \
   -B build-ota-b \
+  -D SDKCONFIG="$PWD/build-ota-b/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
 ```
 
@@ -68,10 +71,10 @@ boots and is accepted, transfer B with the default recovery execution mode:
 IRIS=components/esp_iris/tools/esp_iris.py
 
 python "$IRIS" ctl ota DEVICE_ID \
-  components/esp_iris/examples/ota/build-ota-a/esp_iris_ota.bin --wait
+  build-ota-a/esp_iris_ota.bin --wait
 
 python "$IRIS" ctl ota DEVICE_ID \
-  components/esp_iris/examples/ota/build-ota-b/esp_iris_ota.bin --wait
+  build-ota-b/esp_iris_ota.bin --wait
 ```
 
 B marks itself healthy after three seconds, allowing the Gateway to complete
@@ -82,10 +85,11 @@ the reconnect and acceptance checks.
 ```bash
 idf.py -C components/esp_iris/examples/ota \
   -B build-ota-application \
+  -D SDKCONFIG="$PWD/build-ota-application/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
 
 python "$IRIS" ctl ota DEVICE_ID \
-  components/esp_iris/examples/ota/build-ota-application/esp_iris_ota.bin \
+  build-ota-application/esp_iris_ota.bin \
   --execution-mode application --wait
 ```
 
@@ -97,8 +101,13 @@ partition table, bootloader, or factory recovery image.
 ```bash
 idf.py -C components/esp_iris/examples/ota \
   -B build-ota-rollback \
+  -D SDKCONFIG="$PWD/build-ota-rollback/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
 ```
+
+Each profile deliberately keeps its generated `sdkconfig` inside its own build
+directory. Do not reuse the project-level generated `sdkconfig` across these
+images, because it overrides later `SDKCONFIG_DEFAULTS` selections.
 
 The rollback image remains pending until RPC `0x1200/2` accepts it. Rebooting
 without acceptance exercises the bootloader rollback path.

@@ -183,6 +183,38 @@ def test_ota_end_timeout_is_reconciled_with_device_job() -> None:
     asyncio.run(scenario())
 
 
+def test_ota_end_session_close_is_deferred_to_gateway_reconnect_validation() -> None:
+    async def scenario() -> None:
+        session = object.__new__(DeviceSession)
+        calls = 0
+
+        async def request(channel, type_, payload=b"", timeout=10.0):
+            nonlocal calls
+            del payload, timeout
+            calls += 1
+            if calls == 1:
+                return Frame(
+                    channel=channel,
+                    type=OtaType.BEGIN_RESPONSE,
+                    payload=struct.pack("<IIHB", 78, 1, 1, 5) + b"ota_1",
+                )
+            if calls == 2:
+                return Frame(
+                    channel=channel,
+                    type=OtaType.DATA_RESPONSE,
+                    payload=struct.pack("<IHH", 1, 900, 0),
+                )
+            assert (channel, type_) == (Channel.OTA, OtaType.END)
+            raise ConnectionError("ESP-Iris session closed")
+
+        session._request = request
+        result = await session.ota_update(b"x", timeout=0.01)
+        assert result["completion_evidence"] == "session_close"
+        assert result["job_id"] == 78
+
+    asyncio.run(scenario())
+
+
 def test_event_time_fields_crash_metadata_and_chunk_download() -> None:
     async def scenario() -> None:
         link = FakeLink()

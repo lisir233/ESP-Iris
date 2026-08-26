@@ -446,8 +446,8 @@ async def _ctl(args: argparse.Namespace) -> int:
                     async with session.get(base + "/v1/mode", ssl=ssl_value) as response:
                         _output(await _response_json(response), args.json)
             elif command in ("rpc", "rpc-raw"):
-                payload = json.loads(args.params)
                 if command == "rpc":
+                    payload = json.loads(args.params)
                     url = base + f"/v1/devices/{args.device}/rpc/{args.method}"
                     body = {"params": payload, "deadline_ms": args.deadline_ms}
                 else:
@@ -761,6 +761,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "ctl":
             return asyncio.run(_ctl(args))
         asyncio.run(_web(args))
+    except KeyboardInterrupt:
+        return 130
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         print(f"esp_iris.py: error: {exc}", file=sys.stderr)
         return 2

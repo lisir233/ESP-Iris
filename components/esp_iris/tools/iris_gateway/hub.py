@@ -21,6 +21,12 @@ RAW_MEDIA_FORMATS = {1, 2}
 ENCODED_MEDIA_FORMATS = {3, 4}
 
 
+def _firmware_mode_from_identity(project_name: str, app_version: str) -> str:
+    """Classify a USB image from identity fields that survive re-enumeration."""
+    identity = f"{project_name} {app_version}".casefold()
+    return "recovery" if "recovery" in identity else "normal"
+
+
 async def _next_complete_screen_frame(
     queue: asyncio.Queue[dict[str, Any]],
     full_description: dict[str, Any],
@@ -158,7 +164,12 @@ class IrisHub:
                 firmware_mode = "recovery"
             elif "normal" in lowered:
                 firmware_mode = "normal"
-        self._endpoint_states[endpoint]["firmware_mode"] = firmware_mode or "unknown"
+        # The supervisor can complete HELLO before add_usb() resumes. Preserve
+        # the identity-derived mode in that race; otherwise seed the state from
+        # discovery until HELLO provides the authoritative value.
+        self._endpoint_states[endpoint].setdefault(
+            "firmware_mode", firmware_mode or "unknown"
+        )
         self._endpoint_states[endpoint]["transport_name"] = (
             "USB Serial/JTAG" if usb_serial_jtag else "USB Highspeed"
         )
@@ -329,6 +340,10 @@ class IrisHub:
     async def _on_ready(self, session: DeviceSession) -> None:
         assert session.info is not None
         info = session.info
+        if session.link.endpoint.startswith("usb:"):
+            self._endpoint_states[session.link.endpoint]["firmware_mode"] = (
+                _firmware_mode_from_identity(info.project_name, info.app_version)
+            )
         existing = self._devices.get(info.device_id)
         if existing is not None and existing is not session:
             await session.close()

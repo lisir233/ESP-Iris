@@ -532,6 +532,11 @@ def test_local_auth_cli_is_opt_in() -> None:
     )
     assert coredump.ctl_command == "coredump"
     assert coredump.output == "/tmp/device.core"
+    rpc_raw = parser.parse_args(
+        ["ctl", "--json", "rpc-raw", "device-a", "0x1200", "1", "--payload", "{}"]
+    )
+    assert not hasattr(rpc_raw, "params")
+    assert rpc_raw.payload == "{}"
     pointer_input = parser.parse_args(
         [
             "ctl",

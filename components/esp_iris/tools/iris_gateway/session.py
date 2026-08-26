@@ -758,6 +758,7 @@ class DeviceSession:
             )
         offset = 0
         end_confirmed_by_job = False
+        end_confirmed_by_disconnect = False
         try:
             while offset < len(image):
                 chunk = image[offset : offset + chunk_size]
@@ -829,11 +830,18 @@ class DeviceSession:
                     ) from None
                 end_confirmed_by_job = True
                 end = None
+            except (ConnectionError, OSError):
+                # Some USB CDC implementations restart immediately after
+                # accepting OTA END, so Windows removes the COM endpoint before
+                # the END_RESPONSE reaches the host. The gateway must still
+                # validate the new boot identity/version before succeeding.
+                end_confirmed_by_disconnect = True
+                end = None
         except BaseException:
             with contextlib.suppress(Exception):
                 await self._request(Channel.OTA, OtaType.CANCEL, b"", timeout)
             raise
-        if not end_confirmed_by_job:
+        if not end_confirmed_by_job and not end_confirmed_by_disconnect:
             if end is None or end.type != OtaType.END_RESPONSE or len(end.payload) != 8:
                 raise ProtocolError("unexpected OTA end response")
             returned_job, result = struct.unpack("<Ii", end.payload)
@@ -845,7 +853,13 @@ class DeviceSession:
             "sha256": digest.hex(),
             "partition": partition,
             "restart_required": True,
-            "completion_evidence": "device_job" if end_confirmed_by_job else "end_response",
+            "completion_evidence": (
+                "device_job"
+                if end_confirmed_by_job
+                else "session_close"
+                if end_confirmed_by_disconnect
+                else "end_response"
+            ),
         }
 
     async def ota_status(self, *, timeout: float = 10.0) -> dict[str, Any]:

@@ -278,7 +278,13 @@ class GatewayService:
                 progress_permille=25,
                 previous_boot_id=previous_boot,
             )
-            await self.hub.enter_recovery(device_id)
+            try:
+                await self.hub.enter_recovery(device_id)
+            except (ConnectionError, OSError):
+                # Windows can remove the CDC endpoint while the recovery RPC
+                # write/response is still completing. The reconnect loop below
+                # is the authority on whether the request took effect.
+                pass
             await self.operations.progress(
                 operation_id,
                 stage="waiting_recovery",
@@ -290,7 +296,13 @@ class GatewayService:
                 await asyncio.sleep(0.25)
                 try:
                     recovery_status = await self.hub.status(device_id)
-                except (ConnectionError, KeyError, LookupError, RuntimeError):
+                except (
+                    ConnectionError,
+                    OSError,
+                    KeyError,
+                    LookupError,
+                    RuntimeError,
+                ):
                     continue
                 if (
                     recovery_status.get("firmware_mode") == "recovery"
@@ -328,31 +340,45 @@ class GatewayService:
                 partition=progress.get("partition", ""),
             )
 
-        result = await self.hub.ota_update(
-            device_id,
-            image,
-            expected_sha256=bytes.fromhex(metadata["sha256"]),
-            project_name=metadata["project_name"],
-            version=metadata["version"],
-            progress_callback=report_progress,
+        queue = (
+            None
+            if getattr(self, "demo", False)
+            else self.hub.subscribe(device_id)
         )
-        await self.operations.progress(
-            operation_id,
-            stage="waiting_device",
-            progress_permille=900,
-            job_id=result.get("job_id"),
-        )
-        if result.get("healthy"):
-            return {
-                **result,
-                "validated_image": metadata,
-                "execution_mode": execution_mode,
-                "recovery_boot_id": recovery_boot,
-            }
-        queue = self.hub.subscribe(device_id)
         writer_boot = recovery_boot if recovery_boot is not None else previous_boot
         try:
-            delay = await self.hub.restart(device_id, 250)
+            result = await self.hub.ota_update(
+                device_id,
+                image,
+                expected_sha256=bytes.fromhex(metadata["sha256"]),
+                project_name=metadata["project_name"],
+                version=metadata["version"],
+                progress_callback=report_progress,
+            )
+            await self.operations.progress(
+                operation_id,
+                stage="waiting_device",
+                progress_permille=900,
+                job_id=result.get("job_id"),
+            )
+            if result.get("healthy"):
+                return {
+                    **result,
+                    "validated_image": metadata,
+                    "execution_mode": execution_mode,
+                    "recovery_boot_id": recovery_boot,
+                }
+            assert queue is not None
+            if result.get("completion_evidence") == "session_close":
+                delay = None
+            else:
+                try:
+                    delay = await self.hub.restart(device_id, 250)
+                except (ConnectionError, OSError, KeyError):
+                    # The writer may restart immediately after END_RESPONSE.
+                    # Reconcile that same-device reboot below instead of
+                    # turning the expected USB re-enumeration into a failure.
+                    delay = None
             await self.operations.progress(
                 operation_id,
                 stage="reconnecting",
@@ -390,7 +416,8 @@ class GatewayService:
                 "healthy": True,
             }
         finally:
-            self.hub.unsubscribe(device_id, queue)
+            if queue is not None:
+                self.hub.unsubscribe(device_id, queue)
 
     async def closed_loop_restart(
         self, device_id: str, delay_ms: int, operation_id: str

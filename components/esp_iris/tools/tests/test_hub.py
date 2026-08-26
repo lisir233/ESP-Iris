@@ -3,7 +3,7 @@ import struct
 
 import pytest
 
-from iris_gateway.hub import IrisHub
+from iris_gateway.hub import IrisHub, _firmware_mode_from_identity
 from iris_gateway.protocol import (
     Channel,
     ControlType,
@@ -52,6 +52,11 @@ class SupervisorLink:
 
     async def close(self) -> None:
         self.closed = True
+
+
+def test_usb_firmware_mode_uses_hello_identity_instead_of_com_port_name() -> None:
+    assert _firmware_mode_from_identity("esp_iris_ota", "1.0.0-recovery") == "recovery"
+    assert _firmware_mode_from_identity("esp_iris_ota", "1.0.0-a") == "normal"
 
 
 def test_supervisor_retries_and_classifies_same_boot_as_reconnect() -> None:

@@ -33,28 +33,23 @@ esp32s31-examples:
   tags:
     - esp-idf
   script:
-    - idf.py -C components/esp_iris/examples/minimal -B build-ci-tcp build
-    - idf.py -C components/esp_iris/examples/minimal -B build-ci-usb -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
-    - idf.py -C components/esp_iris/examples/tcp_wifi -B build-ci build
-    - idf.py -C components/esp_iris/examples/tcp_pairing -B build-ci build
-    - idf.py -C components/esp_iris/examples/rpc_jobs -B build-ci build
-    - idf.py -C components/esp_iris/examples/display_input -B build-ci build
-    - idf.py -C components/esp_iris/examples/media_streams -B build-ci build
-    - idf.py -C components/esp_iris/examples/ota -B build-ci-recovery -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
-    - idf.py -C components/esp_iris/examples/ota -B build-ci-a build
-    - idf.py -C components/esp_iris/examples/ota -B build-ci-b -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
-    - idf.py -C components/esp_iris/examples/ota -B build-ci-rollback -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
-    - idf.py -C components/esp_iris/examples/ota -B build-ci-application -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
+    - idf.py -C components/esp_iris/examples/minimal -B build-ci-tcp -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-tcp/sdkconfig build
+    - idf.py -C components/esp_iris/examples/minimal -B build-ci-usb -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-usb/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
+    - idf.py -C components/esp_iris/examples/minimal -B build-ci-usj -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-usj/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
+    - idf.py -C components/esp_iris/examples/tcp_wifi -B build-ci-tcp-wifi -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-tcp-wifi/sdkconfig build
+    - idf.py -C components/esp_iris/examples/tcp_pairing -B build-ci-tcp-pairing -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-tcp-pairing/sdkconfig build
+    - idf.py -C components/esp_iris/examples/rpc_jobs -B build-ci-rpc-jobs -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-rpc-jobs/sdkconfig build
+    - idf.py -C components/esp_iris/examples/display_input -B build-ci-display-input -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-display-input/sdkconfig build
+    - idf.py -C components/esp_iris/examples/media_streams -B build-ci-media-streams -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-media-streams/sdkconfig build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-recovery -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-recovery/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-a -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-a/sdkconfig build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-b -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-b/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-rollback -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-rollback/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-application -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-application/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
   artifacts:
     when: always
     paths:
-      - components/esp_iris/examples/minimal/build-ci-*/*.bin
-      - components/esp_iris/examples/minimal/build-ci-*/*.elf
-      - components/esp_iris/examples/minimal/build-ci-*/*.map
-      - components/esp_iris/examples/*/build-ci/*.bin
-      - components/esp_iris/examples/*/build-ci/*.elf
-      - components/esp_iris/examples/*/build-ci/*.map
-      - components/esp_iris/examples/ota/build-ci-*/*.bin
-      - components/esp_iris/examples/ota/build-ci-*/*.elf
-      - components/esp_iris/examples/ota/build-ci-*/*.map
+      - build-ci-*/*.bin
+      - build-ci-*/*.elf
+      - build-ci-*/*.map
     expire_in: 14 days

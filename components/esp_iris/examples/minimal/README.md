@@ -23,16 +23,23 @@ From the repository root, build each profile in an isolated directory:
 
 ```bash
 idf.py -C components/esp_iris/examples/minimal \
-  -B build-minimal-tcp build
+  -B build-minimal-tcp \
+  -D SDKCONFIG="$PWD/build-minimal-tcp/sdkconfig" build
 
 idf.py -C components/esp_iris/examples/minimal \
   -B build-minimal-usb \
+  -D SDKCONFIG="$PWD/build-minimal-usb/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
 
 idf.py -C components/esp_iris/examples/minimal \
   -B build-minimal-usj \
+  -D SDKCONFIG="$PWD/build-minimal-usj/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
 ```
+
+The explicit per-build `SDKCONFIG` paths are required when profiles are built
+one after another. A generated project-level `sdkconfig` otherwise takes
+precedence over the next profile's defaults.
 
 ## Run and verify
 

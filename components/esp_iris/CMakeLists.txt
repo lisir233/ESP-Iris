@@ -25,15 +25,14 @@ else()
 endif()
 
 set(ESP_IRIS_PRIV_REQUIRES
+    esp_driver_usb_serial_jtag
     esp_partition
     espcoredump
     mbedtls
 )
 if(CONFIG_ESP_IRIS_TRANSPORT_USB)
     list(APPEND ESP_IRIS_PRIV_REQUIRES esp_tinyusb)
-elseif(CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
-    list(APPEND ESP_IRIS_PRIV_REQUIRES esp_driver_usb_serial_jtag)
-else()
+elseif(NOT CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
     list(APPEND ESP_IRIS_PRIV_REQUIRES esp_netif lwip)
 endif()
 
