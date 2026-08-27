@@ -58,6 +58,9 @@ class DemoHub:
         self._media_subscribers: dict[
             tuple[str, int], set[asyncio.Queue[dict[str, Any]]]
         ] = collections.defaultdict(set)
+        self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = (
+            collections.defaultdict(set)
+        )
         self._jobs: dict[str, dict[int, dict[str, Any]]] = collections.defaultdict(dict)
         self._devices: dict[str, dict[str, Any]] = {
             "demo-a1b2c3d4": self._device(
@@ -564,6 +567,17 @@ class DemoHub:
     ) -> None:
         self._media_subscribers[(device_id, channel)].discard(queue)
 
+    def subscribe(self, device_id: str) -> asyncio.Queue[dict[str, Any]]:
+        self.get(device_id)
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=64)
+        self._subscribers[device_id].add(queue)
+        return queue
+
+    def unsubscribe(
+        self, device_id: str, queue: asyncio.Queue[dict[str, Any]]
+    ) -> None:
+        self._subscribers[device_id].discard(queue)
+
     async def ota_update(
         self,
         device_id: str,
@@ -767,6 +781,13 @@ class DemoHub:
                 queue.put_nowait(event)
 
     async def _emit(self, event: dict[str, Any]) -> None:
+        device_id = event.get("device_id")
+        if device_id:
+            for queue in tuple(self._subscribers[str(device_id)]):
+                if queue.full():
+                    with contextlib.suppress(asyncio.QueueEmpty):
+                        queue.get_nowait()
+                queue.put_nowait(event)
         if self._event_sink:
             await self._event_sink(event)
 

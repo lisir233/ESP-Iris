@@ -4,6 +4,8 @@ All notable ESP-Iris component changes are documented in this file.
 
 ## Unreleased
 
+- Add a standalone FATFS-backed file-transfer example covering streamed
+  upload/download, directory operations, rename, and safe deletion.
 - Allow cross-project OTA by default and add
   `CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` for products that require
   the target image to retain the running firmware project name.

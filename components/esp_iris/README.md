@@ -221,6 +221,7 @@ All public examples are packaged with the component under [`examples/`](examples
 | [`rpc_jobs`](examples/rpc_jobs/README.md) | USB CDC0 | RPC handlers and cancellable jobs |
 | [`display_input`](examples/display_input/README.md) | USB CDC0 | Screenshot, screen mirror, and pointer input |
 | [`media_streams`](examples/media_streams/README.md) | USB CDC0 | Synthetic image and PCM audio streams |
+| [`file_transfer`](examples/file_transfer/README.md) | USB CDC0 | Streamed file upload/download and metadata mutations |
 | [`ota`](examples/ota/README.md) | USB CDC0 | Recovery-first/direct OTA, acceptance, and rollback |
 
 Hardware-focused internal fixtures remain under `test_apps/`; they are not part

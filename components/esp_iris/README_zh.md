@@ -206,6 +206,7 @@ offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换�
 | [`rpc_jobs`](examples/rpc_jobs/README.md) | USB CDC0 | RPC handler 和可取消 Job |
 | [`display_input`](examples/display_input/README.md) | USB CDC0 | 截图、屏幕镜像和指针输入 |
 | [`media_streams`](examples/media_streams/README.md) | USB CDC0 | 合成图像和 PCM 音频流 |
+| [`file_transfer`](examples/file_transfer/README.md) | USB CDC0 | 流式文件上传/下载和元数据操作 |
 | [`ota`](examples/ota/README.md) | USB CDC0 | Recovery-first/直接 OTA、验收和回滚 |
 
 硬件内部 fixture 保留在 `test_apps/`，不进入发布归档。

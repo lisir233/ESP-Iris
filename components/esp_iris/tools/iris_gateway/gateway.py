@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from aiohttp import WSMsgType, web
+from aiohttp import BodyPartReader, WSMsgType, web
 
 from .contracts import GatewayHub
 from .file_routes import register_file_routes
@@ -76,6 +76,12 @@ class GatewayService:
 
     def attach_hub(self, hub: GatewayHub) -> None:
         self.hub = hub
+
+    @property
+    def device_hub(self) -> GatewayHub:
+        if self.hub is None:
+            raise RuntimeError("device hub is not attached")
+        return self.hub
 
     def authentication_required(self, request: web.Request) -> bool:
         return self.require_local_auth or not _request_is_loopback(request)
@@ -228,20 +234,20 @@ class GatewayService:
             if not cached:
                 raise LookupError("no cached device status is available")
             return {**cached, "stale": True, "mode": "observe"}
-        result = await self.hub.status(device_id)
+        result = await self.device_hub.status(device_id)
         result.update(stale=False, mode="develop", queue=self.operations.queue_state(device_id))
         self.store.set_setting(f"status.{device_id}", result)
         self.store.remember_device(result)
         return result
 
     async def preserve_coredump(self, device_id: str) -> dict[str, Any] | None:
-        report = await self.hub.crash_report(device_id)
+        report = await self.device_hub.crash_report(device_id)
         if not report.get("core_dump_present") or not report.get("core_dump_valid"):
             return None
         total = int(report["core_dump_size"])
         data = bytearray()
         while len(data) < total:
-            returned_total, chunk = await self.hub.read_core_dump_chunk(
+            returned_total, chunk = await self.device_hub.read_core_dump_chunk(
                 device_id, len(data), min(int(report.get("core_dump_chunk_max", 1024)), total - len(data))
             )
             if returned_total != total or not chunk:
@@ -258,7 +264,7 @@ class GatewayService:
         operation_id: str,
         execution_mode: str = "recovery",
     ) -> dict[str, Any]:
-        before = await self.hub.status(device_id)
+        before = await self.device_hub.status(device_id)
         if execution_mode not in {"recovery", "application"}:
             raise ValueError("OTA execution mode must be recovery or application")
         if (
@@ -279,7 +285,7 @@ class GatewayService:
                 previous_boot_id=previous_boot,
             )
             try:
-                await self.hub.enter_recovery(device_id)
+                await self.device_hub.enter_recovery(device_id)
             except (ConnectionError, OSError):
                 # Windows can remove the CDC endpoint while the recovery RPC
                 # write/response is still completing. The reconnect loop below
@@ -295,7 +301,7 @@ class GatewayService:
             while asyncio.get_running_loop().time() < deadline:
                 await asyncio.sleep(0.25)
                 try:
-                    recovery_status = await self.hub.status(device_id)
+                    recovery_status = await self.device_hub.status(device_id)
                 except (
                     ConnectionError,
                     OSError,
@@ -343,11 +349,11 @@ class GatewayService:
         queue = (
             None
             if getattr(self, "demo", False)
-            else self.hub.subscribe(device_id)
+            else self.device_hub.subscribe(device_id)
         )
         writer_boot = recovery_boot if recovery_boot is not None else previous_boot
         try:
-            result = await self.hub.ota_update(
+            result = await self.device_hub.ota_update(
                 device_id,
                 image,
                 expected_sha256=bytes.fromhex(metadata["sha256"]),
@@ -373,7 +379,7 @@ class GatewayService:
                 delay = None
             else:
                 try:
-                    delay = await self.hub.restart(device_id, 250)
+                    delay = await self.device_hub.restart(device_id, 250)
                 except (ConnectionError, OSError, KeyError):
                     # The writer may restart immediately after END_RESPONSE.
                     # Reconcile that same-device reboot below instead of
@@ -400,7 +406,7 @@ class GatewayService:
                     break
             if new_boot is None or not healthy:
                 raise RuntimeError("OTA reconnect/healthy acceptance did not close within 45 seconds")
-            status = await self.hub.status(device_id)
+            status = await self.device_hub.status(device_id)
             if status.get("app_version") != metadata["version"]:
                 raise RuntimeError("device reconnected with an unexpected firmware version")
             if status.get("project_name") != metadata["project_name"]:
@@ -417,17 +423,17 @@ class GatewayService:
             }
         finally:
             if queue is not None:
-                self.hub.unsubscribe(device_id, queue)
+                self.device_hub.unsubscribe(device_id, queue)
 
     async def closed_loop_restart(
         self, device_id: str, delay_ms: int, operation_id: str
     ) -> dict[str, Any]:
-        before = await self.hub.status(device_id)
+        before = await self.device_hub.status(device_id)
         previous_boot = before.get("boot_id")
         if self.demo:
-            accepted_delay = await self.hub.restart(device_id, delay_ms)
+            accepted_delay = await self.device_hub.restart(device_id, delay_ms)
             await self.operations.stage(operation_id, "reconnecting")
-            after = await self.hub.status(device_id)
+            after = await self.device_hub.status(device_id)
             return {
                 "accepted": True,
                 "delay_ms": accepted_delay,
@@ -436,9 +442,9 @@ class GatewayService:
                 "reconnected": after.get("boot_id") != previous_boot,
                 "demo": True,
             }
-        queue = self.hub.subscribe(device_id)
+        queue = self.device_hub.subscribe(device_id)
         try:
-            accepted_delay = await self.hub.restart(device_id, delay_ms)
+            accepted_delay = await self.device_hub.restart(device_id, delay_ms)
             await self.operations.stage(operation_id, "reconnecting")
             deadline = asyncio.get_running_loop().time() + 30
             while asyncio.get_running_loop().time() < deadline:
@@ -453,7 +459,7 @@ class GatewayService:
                     and boot_id is not None
                     and boot_id != previous_boot
                 ):
-                    status = await self.hub.status(device_id)
+                    status = await self.device_hub.status(device_id)
                     return {
                         "accepted": True,
                         "delay_ms": accepted_delay,
@@ -466,7 +472,7 @@ class GatewayService:
                 "restart was accepted but same-device reconnect was not observed within 30 seconds"
             )
         finally:
-            self.hub.unsubscribe(device_id, queue)
+            self.device_hub.unsubscribe(device_id, queue)
 
 
 def create_app(service: GatewayService) -> web.Application:
@@ -617,7 +623,9 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def endpoints(request: web.Request) -> web.Response:
         del request
-        return web.json_response({"endpoints": service.hub.list_endpoints(), "demo": service.demo})
+        return web.json_response(
+            {"endpoints": service.device_hub.list_endpoints(), "demo": service.demo}
+        )
 
     async def status(request: web.Request) -> web.Response:
         return web.json_response(await service.current_status(request.match_info["device_id"]))
@@ -751,7 +759,13 @@ def create_app(service: GatewayService) -> web.Application:
             _actor(request),
             "rpc.raw",
             {"service_id": service_id, "method_id": method_id, "request_bytes": len(payload), "deadline_ms": deadline_ms},
-            lambda: service.hub.rpc(device_id, service_id, method_id, payload, deadline_ms=deadline_ms),
+            lambda: service.device_hub.rpc(
+                device_id,
+                service_id,
+                method_id,
+                payload,
+                deadline_ms=deadline_ms,
+            ),
             operation_id=request.headers.get("X-Operation-ID"),
         )
         if not created:
@@ -785,7 +799,7 @@ def create_app(service: GatewayService) -> web.Application:
             _actor(request),
             f"rpc.{name}",
             {"method": name, "request_bytes": len(raw), "deadline_ms": deadline_ms},
-            lambda: service.hub.rpc(
+            lambda: service.device_hub.rpc(
                 device_id,
                 int(method["service_id"]),
                 int(method["method_id"]),
@@ -849,7 +863,7 @@ def create_app(service: GatewayService) -> web.Application:
                 "request_bytes": len(encoded),
                 "deadline_ms": deadline_ms,
             },
-            lambda: service.hub.rpc(
+            lambda: service.device_hub.rpc(
                 device_id,
                 int(method["service_id"]),
                 int(method["method_id"]),
@@ -886,7 +900,7 @@ def create_app(service: GatewayService) -> web.Application:
             _actor(request),
             "job.cancel" if cancel else "job.query",
             {"job_id": job_id},
-            lambda: service.hub.job(device_id, job_id, cancel=cancel),
+            lambda: service.device_hub.job(device_id, job_id, cancel=cancel),
             operation_id=request.headers.get("X-Operation-ID"),
             serialized=cancel,
         )
@@ -915,14 +929,14 @@ def create_app(service: GatewayService) -> web.Application:
         if blocked:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
-        if not hasattr(service.hub, "enter_recovery"):
+        if not hasattr(service.device_hub, "enter_recovery"):
             raise RuntimeError("factory recovery is not supported by this device adapter")
         operation, result, _ = await service.operations.execute(
             device_id,
             _actor(request),
             "recovery.enter_factory",
             {"target": "factory_recovery"},
-            lambda: service.hub.enter_recovery(device_id),
+            lambda: service.device_hub.enter_recovery(device_id),
             operation_id=request.headers.get("X-Operation-ID"),
         )
         return web.json_response({"operation": operation, "recovery": result})
@@ -938,7 +952,7 @@ def create_app(service: GatewayService) -> web.Application:
             _actor(request),
             "media.screenshot",
             {"description": body, "save": request.query.get("save") == "true"},
-            lambda: service.hub.screenshot(device_id, body),
+            lambda: service.device_hub.screenshot(device_id, body),
             operation_id=request.headers.get("X-Operation-ID"),
             serialized=False,
             result_summary=lambda value: {"description": value[0], "bytes": len(value[1])},
@@ -974,8 +988,13 @@ def create_app(service: GatewayService) -> web.Application:
 
         async def call() -> Any:
             if start:
-                return await service.hub.mirror_start(device_id, channel, body.get("description", {}), fps=fps)
-            await service.hub.mirror_stop(device_id, channel)
+                return await service.device_hub.mirror_start(
+                    device_id,
+                    channel,
+                    body.get("description", {}),
+                    fps=fps,
+                )
+            await service.device_hub.mirror_stop(device_id, channel)
             return {"channel": channel, "channel_name": channel_name, "state": "stopped"}
 
         operation, result, _ = await service.operations.execute(
@@ -994,7 +1013,7 @@ def create_app(service: GatewayService) -> web.Application:
         if channel is None:
             raise KeyError("unknown media channel")
         device_id = service.resolve_device(request.match_info["device_id"])
-        queue = service.hub.subscribe_media(device_id, channel)
+        queue = service.device_hub.subscribe_media(device_id, channel)
         websocket = web.WebSocketResponse(heartbeat=20)
         await websocket.prepare(request)
 
@@ -1013,7 +1032,7 @@ def create_app(service: GatewayService) -> web.Application:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            service.hub.unsubscribe_media(device_id, channel, queue)
+            service.device_hub.unsubscribe_media(device_id, channel, queue)
         return websocket
 
     async def input_event(request: web.Request) -> web.Response:
@@ -1025,14 +1044,14 @@ def create_app(service: GatewayService) -> web.Application:
         if not isinstance(moves, list) or len(moves) > 2048:
             raise ValueError("gesture moves must be a list of at most 2048 points")
         device_id = service.resolve_device(request.match_info["device_id"])
-        if not hasattr(service.hub, "input_event"):
+        if not hasattr(service.device_hub, "input_event"):
             raise RuntimeError("device input requires an input RPC catalog adapter")
         operation, result, _ = await service.operations.execute(
             device_id,
             _actor(request),
             "input.gesture",
             {"type": body.get("type", "pointer"), "move_count": len(moves), "begin": body.get("begin"), "end": body.get("end")},
-            lambda: service.hub.input_event(device_id, body),
+            lambda: service.device_hub.input_event(device_id, body),
             operation_id=request.headers.get("X-Operation-ID"),
         )
         return web.json_response({"operation": operation, "input": result})
@@ -1048,14 +1067,15 @@ def create_app(service: GatewayService) -> web.Application:
         content_type = request.content_type
         if content_type not in ("audio/wav", "audio/x-wav", "application/octet-stream"):
             raise ValueError("audio upload must be WAV or PCM")
-        if not hasattr(service.hub, "audio_upload"):
+        audio_upload_adapter = getattr(service.device_hub, "audio_upload", None)
+        if audio_upload_adapter is None:
             raise RuntimeError("device audio upload requires an audio RPC catalog adapter")
         operation, result, _ = await service.operations.execute(
             device_id,
             _actor(request),
             "audio.upload",
             {"bytes": len(data), "content_type": content_type},
-            lambda: service.hub.audio_upload(device_id, data, content_type),
+            lambda: audio_upload_adapter(device_id, data, content_type),
             operation_id=request.headers.get("X-Operation-ID"),
         )
         return web.json_response({"operation": operation, "audio": result})
@@ -1069,6 +1089,8 @@ def create_app(service: GatewayService) -> web.Application:
         reader = await request.multipart()
         parts: dict[str, bytes] = {}
         async for part in reader:
+            if not isinstance(part, BodyPartReader):
+                continue
             if part.name not in {"bin", "elf", "map"}:
                 continue
             data = await part.read(decode=False)
@@ -1155,7 +1177,9 @@ def create_app(service: GatewayService) -> web.Application:
         if blocked:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
-        return web.json_response({"reports": [await service.hub.crash_report(device_id)]})
+        return web.json_response(
+            {"reports": [await service.device_hub.crash_report(device_id)]}
+        )
 
     async def core_dump(request: web.Request) -> web.StreamResponse:
         blocked = service.require_develop()

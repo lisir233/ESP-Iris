@@ -416,7 +416,7 @@ class IrisHub:
                 Transport.USB: "USB Highspeed",
                 Transport.TCP: "TCP",
                 Transport.USB_SERIAL_JTAG: "USB Serial/JTAG",
-            }.get(session.info.transport, "Unknown")
+            }.get(Transport(session.info.transport), "Unknown")
             result.append(item)
         return result
 

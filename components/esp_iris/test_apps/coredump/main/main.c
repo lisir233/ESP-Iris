@@ -413,6 +413,23 @@ static void maybe_crash_pending_ota(void)
     }
 }
 
+static void maybe_mark_pending_ota_healthy(void)
+{
+#ifndef CONFIG_ESP_IRIS_TEST_AUTO_MARK_HEALTHY
+    return;
+#else
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state;
+    if (running != NULL &&
+        esp_ota_get_state_partition(running, &state) == ESP_OK &&
+        state == ESP_OTA_IMG_PENDING_VERIFY) {
+        ESP_ERROR_CHECK(esp_iris_mark_healthy());
+        printf("IRIS_TEST_AUTO_HEALTHY\n");
+        fflush(stdout);
+    }
+#endif
+}
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -435,4 +452,5 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_iris_rpc_register(1, 6, state_rpc, NULL));
     ESP_ERROR_CHECK(esp_iris_screen_register(&screen));
     ESP_ERROR_CHECK(esp_iris_start());
+    maybe_mark_pending_ota_healthy();
 }

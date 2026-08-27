@@ -16,4 +16,12 @@ config ESP_IRIS_TEST_NEXT_PAIRING_TOKEN
     string "Rotated 64-hex pairing token"
     default ""
 
+config ESP_IRIS_TEST_AUTO_MARK_HEALTHY
+    bool "Automatically accept a pending OTA image"
+    default y
+    help
+        Emit the ESP-Iris healthy lifecycle event after a normal pending OTA
+        boot. Crash injection runs before this check, so an armed pending image
+        still crashes and exercises bootloader rollback and coredump retention.
+
 endmenu

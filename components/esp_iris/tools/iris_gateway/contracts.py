@@ -92,7 +92,6 @@ class GatewayHub(Protocol):
         payload: bytes,
         *,
         deadline_ms: int = 1000,
-        timeout: float = 3.0,
     ) -> bytes: ...
 
     async def job(
@@ -100,11 +99,16 @@ class GatewayHub(Protocol):
     ) -> dict[str, Any]: ...
 
     async def screenshot(
-        self, device_id: str, description: dict[str, int], maximum: int = 1024
+        self, device_id: str, description: dict[str, int] | None = None
     ) -> tuple[dict[str, int], bytes]: ...
 
     async def mirror_start(
-        self, device_id: str, channel: int, description: dict[str, int], fps: int
+        self,
+        device_id: str,
+        channel: int,
+        description: dict[str, int] | None = None,
+        *,
+        fps: int = 5,
     ) -> dict[str, Any]: ...
 
     async def mirror_stop(self, device_id: str, channel: int) -> None: ...
@@ -114,7 +118,7 @@ class GatewayHub(Protocol):
         device_id: str,
         image: bytes,
         *,
-        expected_sha256: bytes,
+        expected_sha256: bytes | None,
         project_name: str,
         version: str,
         progress_callback: ProgressCallback | None = None,

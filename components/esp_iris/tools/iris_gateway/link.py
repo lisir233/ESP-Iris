@@ -7,7 +7,21 @@ import hashlib
 import os
 import pathlib
 import tempfile
-from typing import BinaryIO
+from typing import Protocol
+
+
+class SerialPort(Protocol):
+    @property
+    def is_open(self) -> bool: ...
+
+    @property
+    def in_waiting(self) -> int: ...
+
+    def read(self, size: int) -> bytes: ...
+
+    def write(self, data: bytes) -> int | None: ...
+
+    def close(self) -> None: ...
 
 
 class Link(abc.ABC):
@@ -55,7 +69,7 @@ class TcpLink(Link):
 
 
 class SerialLink(Link):
-    def __init__(self, port: str, serial_port: BinaryIO) -> None:
+    def __init__(self, port: str, serial_port: SerialPort) -> None:
         self.port = port
         self.endpoint = f"usb:{os.path.realpath(port)}"
         self._serial = serial_port
@@ -73,14 +87,14 @@ class SerialLink(Link):
     ) -> SerialLink:
         import serial
 
-        def open_port() -> BinaryIO:
-            options = {
-                "baudrate": 115200,
-                "timeout": 0.2,
-                "write_timeout": 2,
-                "exclusive": True if os.name == "posix" else None,
-            }
-            serial_port = serial.Serial(port=port, **options)
+        def open_port() -> SerialPort:
+            serial_port = serial.Serial(
+                port=port,
+                baudrate=115200,
+                timeout=0.2,
+                write_timeout=2,
+                exclusive=True if os.name == "posix" else None,
+            )
             try:
                 if hupcl is not None and os.name == "posix":
                     import termios
@@ -178,7 +192,9 @@ class EndpointLock:
 
             self._file.seek(0)
             try:
-                msvcrt.locking(self._file.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(  # type: ignore[attr-defined]
+                    self._file.fileno(), msvcrt.LK_NBLCK, 1  # type: ignore[attr-defined]
+                )
             except OSError as exc:
                 raise RuntimeError(
                     "endpoint is owned by another ESP-Iris instance"
@@ -205,7 +221,9 @@ class EndpointLock:
 
             self._file.seek(0)
             try:
-                msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(  # type: ignore[attr-defined]
+                    self._file.fileno(), msvcrt.LK_UNLCK, 1  # type: ignore[attr-defined]
+                )
             except OSError:
                 pass
         else:

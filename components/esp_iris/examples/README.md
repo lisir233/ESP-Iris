@@ -15,6 +15,7 @@ during source development.
 | [`rpc_jobs`](rpc_jobs/README.md) | USB CDC0 | Echo/info RPCs and a cancellable long-running job | Separate programming interface |
 | [`display_input`](display_input/README.md) | USB CDC0 | Pull screenshot backend, screen mirror, and pointer RPC | Separate programming interface |
 | [`media_streams`](media_streams/README.md) | USB CDC0 | Synthetic RGB565 image and PCM S16LE audio | Separate programming interface |
+| [`file_transfer`](file_transfer/README.md) | USB CDC0 | Streamed files, directories, rename, and safe deletion on FATFS | Separate programming interface and 2 MB partition layout |
 | [`ota`](ota/README.md) | USB CDC0 | Recovery-first/direct OTA, A/B slots, acceptance, and rollback | 16 MB flash layout and separate programming interface |
 
 Start with `minimal`, then choose a focused example for the service you are

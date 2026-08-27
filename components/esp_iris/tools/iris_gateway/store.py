@@ -156,6 +156,8 @@ class GatewayStore:
             "VALUES(?, ?, ?, ?)",
             (device_id, category, host_ns, _json(payload)),
         )
+        if cursor.lastrowid is None:
+            raise RuntimeError("SQLite did not return an event ID")
         event_id = int(cursor.lastrowid)
         self.db.commit()
         item = dict(payload)
@@ -433,6 +435,8 @@ class GatewayStore:
             (actor_type, actor_name, action, _json(details or {}), now),
         )
         self.db.commit()
+        if cursor.lastrowid is None:
+            raise RuntimeError("SQLite did not return an audit ID")
         return {
             "audit_id": int(cursor.lastrowid),
             "actor_type": actor_type,

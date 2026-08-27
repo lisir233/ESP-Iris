@@ -553,12 +553,12 @@ async def _ctl(args: argparse.Namespace) -> int:
                     )
             elif command == "mirror":
                 url = base + f"/v1/devices/{args.device}/mirror/{args.action}"
-                body: dict[str, Any] = {"channel": args.channel}
+                mirror_body: dict[str, Any] = {"channel": args.channel}
                 if args.action == "start":
-                    body["fps"] = args.fps
+                    mirror_body["fps"] = args.fps
                 async with session.post(
                     url,
-                    json=body,
+                    json=mirror_body,
                     headers={"X-Operation-ID": str(uuid.uuid4())},
                     ssl=ssl_value,
                 ) as response:
