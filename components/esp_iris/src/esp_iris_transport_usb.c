@@ -61,6 +61,29 @@ static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
     }
 }
 
+static void usb_device_event_callback(tinyusb_event_t *event, void *arg)
+{
+    iris_runtime_t *runtime = arg;
+    if (runtime == NULL || event == NULL) {
+        return;
+    }
+
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        break;
+    case TINYUSB_EVENT_DETACHED:
+        atomic_store(&runtime->transport.host_open, false);
+        atomic_store(&runtime->transport.disconnect_pending, true);
+        break;
+    default:
+        return;
+    }
+
+    if (runtime->task != NULL) {
+        xTaskNotifyGive(runtime->task);
+    }
+}
+
 esp_err_t iris_transport_start(iris_runtime_t *runtime)
 {
     if (runtime == NULL) {
@@ -78,7 +101,8 @@ esp_err_t iris_transport_start(iris_runtime_t *runtime)
     runtime->transport.usb_serial[32] = '\0';
     s_string_descriptors[3] = runtime->transport.usb_serial;
 
-    tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t config =
+        TINYUSB_DEFAULT_CONFIG(usb_device_event_callback, runtime);
     config.descriptor.device = &s_device_descriptor;
     config.descriptor.string = s_string_descriptors;
     config.descriptor.string_count = sizeof(s_string_descriptors) /
