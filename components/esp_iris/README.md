@@ -60,9 +60,11 @@ Kconfig and are activated only when configured or used.
 | Gateway | Python 3.11 or newer; Linux is the primary real-device validation platform |
 | Workbench | A current Node.js/npm environment is required to build the bundled React source |
 
-Only one device transport is compiled into each firmware image. Transport
-selection is static and cannot be changed at runtime, but devices using
-different transports can share one Gateway concurrently.
+One or more device transports may be compiled into an image. When several are
+enabled, physical connections negotiate in bounded turns and the first valid,
+authenticated-when-required HELLO_ACK owns the single active session. Losing
+transports stop until the winner disconnects, then all configured transports
+wait again. A port open by itself never claims the device.
 
 ## Quick start
 
@@ -77,12 +79,12 @@ dependencies:
 
 Run `idf.py reconfigure` after adding or changing managed dependencies.
 
-### 2. Select a transport
+### 2. Select transports
 
 Open `idf.py menuconfig`, then go to:
 
 ```text
-Component config > ESP-Iris device link > Device transport
+Component config > ESP-Iris device link > Device transports
 ```
 
 - **Raw TCP** listens on port `19772` by default. Your application must create
@@ -92,6 +94,10 @@ Component config > ESP-Iris device link > Device transport
 - **USB Serial/JTAG** owns the fixed serial channel while preserving JTAG. Do
   not open the same serial endpoint from the Gateway and a flashing/monitoring
   tool at the same time.
+
+Select any compatible combination. With multiple transports, provisional
+connections have a configurable handshake timeout; `esp_iris_status_t` reports
+transport `NONE` while no candidate is negotiating or active.
 
 See the transport-specific notes in the [example index](examples/README.md).
 
@@ -215,7 +221,7 @@ All public examples are packaged with the component under [`examples/`](examples
 
 | Example | Transport | Start here when you need |
 | --- | --- | --- |
-| [`minimal`](examples/minimal/README.md) | TCP, USB CDC0, or USB Serial/JTAG | Identity, lifecycle, status, and logs |
+| [`minimal`](examples/minimal/README.md) | TCP, USB CDC0, USB Serial/JTAG, or all three | Identity, lifecycle, status, logs, and transport arbitration |
 | [`tcp_wifi`](examples/tcp_wifi/README.md) | TCP | Application-owned Wi-Fi and DHCP |
 | [`tcp_pairing`](examples/tcp_pairing/README.md) | TCP | Challenge-HMAC pairing and token provisioning |
 | [`rpc_jobs`](examples/rpc_jobs/README.md) | USB CDC0 | RPC handlers and cancellable jobs |

@@ -85,8 +85,9 @@ python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web \
 ```
 
 Automatic application CDC discovery can add further devices while the Gateway
-is running. A device selects one transport in its firmware and cannot maintain
-simultaneous USB and TCP sessions to the same Gateway.
+is running. A device may wait on several configured transports, but a validated
+HELLO_ACK selects exactly one active session; it never maintains simultaneous
+USB and TCP sessions.
 
 ### Automatic application USB discovery
 

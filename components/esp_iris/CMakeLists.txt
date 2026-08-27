@@ -9,13 +9,21 @@ if(CONFIG_ESP_IRIS_ENABLE)
         "src/esp_iris_platform.c"
         "src/esp_iris_services.c"
         "src/esp_iris_state.c"
+        "src/esp_iris_transport.c"
     )
     if(CONFIG_ESP_IRIS_TRANSPORT_USB)
         list(APPEND ESP_IRIS_SRCS "src/esp_iris_transport_usb.c")
-    elseif(CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
+    endif()
+    if(CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
         list(APPEND ESP_IRIS_SRCS "src/esp_iris_transport_usb_serial_jtag.c")
-    else()
+    endif()
+    if(CONFIG_ESP_IRIS_TRANSPORT_TCP)
         list(APPEND ESP_IRIS_SRCS "src/esp_iris_transport_tcp.c")
+    endif()
+    if(NOT CONFIG_ESP_IRIS_TRANSPORT_USB AND
+       NOT CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG AND
+       NOT CONFIG_ESP_IRIS_TRANSPORT_TCP)
+        message(FATAL_ERROR "ESP-Iris requires at least one device transport")
     endif()
 else()
     set(ESP_IRIS_SRCS
@@ -26,16 +34,15 @@ endif()
 
 set(ESP_IRIS_PRIV_REQUIRES
     esp_driver_usb_serial_jtag
+    esp_netif
     esp_partition
     espcoredump
+    lwip
     mbedtls
 )
 if(CONFIG_ESP_IRIS_TRANSPORT_USB)
     list(APPEND ESP_IRIS_PRIV_REQUIRES esp_tinyusb)
-elseif(NOT CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG)
-    list(APPEND ESP_IRIS_PRIV_REQUIRES esp_netif lwip)
 endif()
-
 idf_component_register(
     SRCS ${ESP_IRIS_SRCS}
     INCLUDE_DIRS "include"

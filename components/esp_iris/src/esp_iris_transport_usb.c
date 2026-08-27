@@ -9,6 +9,7 @@
 #include "tusb.h"
 
 static iris_runtime_t *s_runtime;
+static iris_transport_state_t *s_state;
 
 static const char s_langid[] = {0x09, 0x04};
 static const char *s_string_descriptors[] = {
@@ -53,9 +54,9 @@ static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
     }
     const bool host_open = event->line_state_changed_data.dtr;
     if (!host_open) {
-        atomic_store(&s_runtime->transport.disconnect_pending, true);
+        atomic_store(&s_state->disconnect_pending, true);
     }
-    atomic_store(&s_runtime->transport.host_open, host_open);
+    atomic_store(&s_state->host_open, host_open);
     if (s_runtime->task != NULL) {
         xTaskNotifyGive(s_runtime->task);
     }
@@ -64,7 +65,7 @@ static void cdc_line_state_callback(int itf, cdcacm_event_t *event)
 static void usb_device_event_callback(tinyusb_event_t *event, void *arg)
 {
     iris_runtime_t *runtime = arg;
-    if (runtime == NULL || event == NULL) {
+    if (runtime == NULL || s_state == NULL || event == NULL) {
         return;
     }
 
@@ -72,8 +73,8 @@ static void usb_device_event_callback(tinyusb_event_t *event, void *arg)
     case TINYUSB_EVENT_ATTACHED:
         break;
     case TINYUSB_EVENT_DETACHED:
-        atomic_store(&runtime->transport.host_open, false);
-        atomic_store(&runtime->transport.disconnect_pending, true);
+        atomic_store(&s_state->host_open, false);
+        atomic_store(&s_state->disconnect_pending, true);
         break;
     default:
         return;
@@ -84,22 +85,26 @@ static void usb_device_event_callback(tinyusb_event_t *event, void *arg)
     }
 }
 
-esp_err_t iris_transport_start(iris_runtime_t *runtime)
+static esp_err_t usb_start(iris_runtime_t *runtime,
+                           iris_transport_state_t *state)
 {
-    if (runtime == NULL) {
+    if (runtime == NULL || state == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (runtime->transport.driver_started) {
+    if (state->driver_started) {
         return ESP_OK;
     }
 
     static const char hex[] = "0123456789abcdef";
     for (size_t i = 0; i < sizeof(runtime->device_id); ++i) {
-        runtime->transport.usb_serial[i * 2] = hex[runtime->device_id[i] >> 4];
-        runtime->transport.usb_serial[i * 2 + 1] = hex[runtime->device_id[i] & 0x0f];
+        state->usb_serial[i * 2] = hex[runtime->device_id[i] >> 4];
+        state->usb_serial[i * 2 + 1] = hex[runtime->device_id[i] & 0x0f];
     }
-    runtime->transport.usb_serial[32] = '\0';
-    s_string_descriptors[3] = runtime->transport.usb_serial;
+    state->usb_serial[32] = '\0';
+    s_string_descriptors[3] = state->usb_serial;
+
+    s_runtime = runtime;
+    s_state = state;
 
     tinyusb_config_t config =
         TINYUSB_DEFAULT_CONFIG(usb_device_event_callback, runtime);
@@ -109,6 +114,8 @@ esp_err_t iris_transport_start(iris_runtime_t *runtime)
                                      sizeof(s_string_descriptors[0]);
     esp_err_t err = tinyusb_driver_install(&config);
     if (err != ESP_OK) {
+        s_runtime = NULL;
+        s_state = NULL;
         return err;
     }
 
@@ -121,56 +128,60 @@ esp_err_t iris_transport_start(iris_runtime_t *runtime)
     err = tinyusb_cdcacm_init(&cdc);
     if (err != ESP_OK) {
         (void)tinyusb_driver_uninstall();
+        s_runtime = NULL;
+        s_state = NULL;
         return err;
     }
 
-    s_runtime = runtime;
-    atomic_store(&runtime->transport.host_open, false);
-    atomic_store(&runtime->transport.disconnect_pending, false);
-    runtime->transport.driver_started = true;
-    runtime->transport.link_up = false;
-    runtime->transport.reported_link_up = false;
+    atomic_store(&state->host_open, false);
+    atomic_store(&state->disconnect_pending, false);
+    state->driver_started = true;
+    state->link_up = false;
+    state->reported_link_up = false;
     return ESP_OK;
 }
 
-void iris_transport_stop(iris_runtime_t *runtime)
+static void usb_stop(iris_runtime_t *runtime, iris_transport_state_t *state)
 {
-    if (runtime == NULL || !runtime->transport.driver_started) {
+    if (runtime == NULL || state == NULL || !state->driver_started) {
         return;
     }
     s_runtime = NULL;
+    s_state = NULL;
     (void)tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
     (void)tinyusb_driver_uninstall();
-    runtime->transport.driver_started = false;
-    atomic_store(&runtime->transport.host_open, false);
-    atomic_store(&runtime->transport.disconnect_pending, false);
-    runtime->transport.link_up = false;
-    runtime->transport.reported_link_up = false;
+    state->driver_started = false;
+    atomic_store(&state->host_open, false);
+    atomic_store(&state->disconnect_pending, false);
+    state->link_up = false;
+    state->reported_link_up = false;
 }
 
-iris_link_event_t iris_transport_poll(iris_runtime_t *runtime)
+static iris_link_event_t usb_poll(iris_runtime_t *runtime,
+                                  iris_transport_state_t *state)
 {
-    if (atomic_exchange(&runtime->transport.disconnect_pending, false) &&
-            runtime->transport.reported_link_up) {
-        runtime->transport.link_up = false;
-        runtime->transport.reported_link_up = false;
+    (void)runtime;
+    if (atomic_exchange(&state->disconnect_pending, false) &&
+            state->reported_link_up) {
+        state->link_up = false;
+        state->reported_link_up = false;
         return IRIS_LINK_EVENT_DISCONNECTED;
     }
-    runtime->transport.link_up = runtime->transport.driver_started &&
-                                 atomic_load(&runtime->transport.host_open) &&
-                                 tud_mounted();
-    if (runtime->transport.link_up == runtime->transport.reported_link_up) {
+    state->link_up = state->driver_started && atomic_load(&state->host_open) &&
+                     tud_mounted();
+    if (state->link_up == state->reported_link_up) {
         return IRIS_LINK_EVENT_NONE;
     }
-    runtime->transport.reported_link_up = runtime->transport.link_up;
-    return runtime->transport.link_up ? IRIS_LINK_EVENT_CONNECTED
-                                      : IRIS_LINK_EVENT_DISCONNECTED;
+    state->reported_link_up = state->link_up;
+    return state->link_up ? IRIS_LINK_EVENT_CONNECTED
+                          : IRIS_LINK_EVENT_DISCONNECTED;
 }
 
-int iris_transport_read(iris_runtime_t *runtime, uint8_t *buffer,
-                        size_t capacity)
+static int usb_read(iris_runtime_t *runtime, iris_transport_state_t *state,
+                    uint8_t *buffer, size_t capacity)
 {
-    if (!runtime->transport.link_up) {
+    (void)runtime;
+    if (!state->link_up) {
         return -ENOTCONN;
     }
     size_t received = 0;
@@ -179,10 +190,11 @@ int iris_transport_read(iris_runtime_t *runtime, uint8_t *buffer,
     return err == ESP_OK ? (int)received : -EIO;
 }
 
-int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
-                         size_t length)
+static int usb_write(iris_runtime_t *runtime, iris_transport_state_t *state,
+                     const uint8_t *buffer, size_t length)
 {
-    if (!runtime->transport.link_up) {
+    (void)runtime;
+    if (!state->link_up) {
         return -ENOTCONN;
     }
     const size_t queued = tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0,
@@ -193,12 +205,12 @@ int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
     return (int)queued;
 }
 
-esp_iris_transport_kind_t iris_transport_kind(void)
-{
-    return ESP_IRIS_TRANSPORT_KIND_USB;
-}
-
-const char *iris_transport_name(void)
-{
-    return "usb";
-}
+const iris_transport_ops_t g_iris_usb_transport_ops = {
+    .kind = ESP_IRIS_TRANSPORT_KIND_USB,
+    .name = "usb",
+    .start = usb_start,
+    .stop = usb_stop,
+    .poll = usb_poll,
+    .read = usb_read,
+    .write = usb_write,
+};

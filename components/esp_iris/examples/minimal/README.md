@@ -16,6 +16,7 @@ behavior.
 | Raw TCP | `sdkconfig.defaults` | Default; the example does not create Wi-Fi/Ethernet, so another application layer must provide networking |
 | Application USB CDC0 | `sdkconfig.usb.defaults` | ESP32-S31; ESP-Iris owns TinyUSB CDC0 |
 | USB Serial/JTAG | `sdkconfig.usj.defaults` | ESP-Iris owns the fixed serial channel while JTAG remains available |
+| Multi transport | `sdkconfig.multi.defaults` | ESP32-S31; TCP, application USB CDC0, and USB Serial/JTAG wait for one validated winner |
 
 ## Build
 
@@ -35,6 +36,11 @@ idf.py -C components/esp_iris/examples/minimal \
   -B build-minimal-usj \
   -D SDKCONFIG="$PWD/build-minimal-usj/sdkconfig" \
   -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
+
+idf.py -C components/esp_iris/examples/minimal \
+  -B build-minimal-multi \
+  -D SDKCONFIG="$PWD/build-minimal-multi/sdkconfig" \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.multi.defaults build
 ```
 
 The explicit per-build `SDKCONFIG` paths are required when profiles are built
@@ -51,6 +57,12 @@ endpoint used by ESP-Iris.
 After the Gateway connects, logs should contain the device ID and periodic
 status lines. A local `esp_iris_stop()`/`esp_iris_start()` cycle keeps the same
 `boot_id`; a real reboot produces a new one.
+
+In the multi profile, merely opening a socket or serial port creates only a
+provisional candidate. It must return a valid HELLO_ACK within the configured
+claim timeout. Once validated, other transport drivers stop until that session
+disconnects. Candidates are negotiated in bounded round-robin turns, so an
+unresponsive open port cannot hold the other links indefinitely.
 
 The 2 MB defaults intentionally contain no coredump partition. Crash metadata
 remains queryable, while `core_dump_present` is false. Use the internal

@@ -17,8 +17,10 @@
 
 iris_runtime_t g_iris = {
     .transport = {
-        .listen_fd = -1,
-        .client_fd = -1,
+        .tcp = {
+            .listen_fd = -1,
+            .client_fd = -1,
+        },
     },
     .log_lock = portMUX_INITIALIZER_UNLOCKED,
     .event_lock = portMUX_INITIALIZER_UNLOCKED,
@@ -358,10 +360,10 @@ static void handle_control(iris_runtime_t *runtime,
                         (auth_err == ESP_OK ? 0 : ESP_IRIS_FLAG_ERROR),
                     header->request_id, 0, &result, sizeof(result));
             }
-            if (auth_err == ESP_OK) {
+            if (auth_err == ESP_OK && transition_session(
+                    runtime, IRIS_SESSION_EVENT_AUTHENTICATED)) {
                 schedule_session_events(runtime);
-                (void)transition_session(
-                    runtime, IRIS_SESSION_EVENT_AUTHENTICATED);
+                iris_transport_commit(runtime);
             }
         }
         break;
@@ -575,7 +577,12 @@ static void begin_session(iris_runtime_t *runtime)
 
 static void end_session(iris_runtime_t *runtime)
 {
-    iris_services_session_end(runtime);
+    /* A provisional multi-transport candidate cannot reach services before a
+     * valid HELLO_ACK. Do not let a handshake timeout cancel product jobs or
+     * tear down media/file state that no client was allowed to create. */
+    if (runtime->hello_acked) {
+        iris_services_session_end(runtime);
+    }
     (void)transition_session(runtime, IRIS_SESSION_EVENT_LINK_DOWN);
     taskENTER_CRITICAL(&runtime->event_lock);
     runtime->pending_events = 0;

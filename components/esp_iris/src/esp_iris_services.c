@@ -821,7 +821,9 @@ uint64_t iris_services_capabilities(void)
     result |= ESP_IRIS_CAP_OTA_PROJECT_NAME_MATCH;
 #endif
 #if CONFIG_ESP_IRIS_TCP_PAIRING
-    result |= ESP_IRIS_CAP_AUTH;
+    if (iris_transport_kind() == ESP_IRIS_TRANSPORT_KIND_TCP) {
+        result |= ESP_IRIS_CAP_AUTH;
+    }
 #endif
     return result;
 }
@@ -829,10 +831,11 @@ uint64_t iris_services_capabilities(void)
 uint8_t iris_services_auth_mode(void)
 {
 #if CONFIG_ESP_IRIS_TCP_PAIRING
-    return 1;
-#else
-    return 0;
+    if (iris_transport_kind() == ESP_IRIS_TRANSPORT_KIND_TCP) {
+        return 1;
+    }
 #endif
+    return 0;
 }
 
 const uint8_t *iris_services_auth_challenge(size_t *size)
@@ -842,7 +845,8 @@ const uint8_t *iris_services_auth_challenge(size_t *size)
         *size = 0;
     }
 #if CONFIG_ESP_IRIS_TCP_PAIRING
-    if (valid_state(state) && state->auth_token_ready) {
+    if (iris_transport_kind() == ESP_IRIS_TRANSPORT_KIND_TCP &&
+            valid_state(state) && state->auth_token_ready) {
         if (size != NULL) {
             *size = sizeof(state->auth_challenge);
         }
@@ -870,6 +874,9 @@ esp_err_t iris_services_authenticate(const iris_runtime_t *runtime,
                                      const uint8_t *payload, size_t size)
 {
 #if CONFIG_ESP_IRIS_TCP_PAIRING
+    if (iris_transport_kind() != ESP_IRIS_TRANSPORT_KIND_TCP) {
+        return size == 0 ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    }
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state) || !state->auth_token_ready ||
         payload == NULL ||

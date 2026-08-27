@@ -4,6 +4,8 @@ All notable ESP-Iris component changes are documented in this file.
 
 ## Unreleased
 
+- Allow TCP, application USB CDC0, and USB Serial/JTAG to wait concurrently,
+  with bounded HELLO_ACK arbitration and one active transport owner.
 - Add a standalone FATFS-backed file-transfer example covering streamed
   upload/download, directory operations, rename, and safe deletion.
 - Allow cross-project OTA by default and add

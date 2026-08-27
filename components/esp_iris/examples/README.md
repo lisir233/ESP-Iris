@@ -9,7 +9,7 @@ during source development.
 
 | Example | Transport | What it validates | Extra setup |
 | --- | --- | --- | --- |
-| [`minimal`](minimal/README.md) | TCP, USB CDC0, USB Serial/JTAG | Identity, lifecycle, status, and logs | TCP needs an application network interface to become reachable |
+| [`minimal`](minimal/README.md) | TCP, USB CDC0, USB Serial/JTAG, or all three | Identity, lifecycle, status, logs, and single-winner transport arbitration | TCP needs an application network interface to become reachable |
 | [`tcp_wifi`](tcp_wifi/README.md) | TCP | Application-owned Wi-Fi STA, DHCP, and reconnect | Private Wi-Fi credentials |
 | [`tcp_pairing`](tcp_pairing/README.md) | TCP | Challenge-HMAC authentication and persistent token provisioning | Private Wi-Fi credentials and pairing token |
 | [`rpc_jobs`](rpc_jobs/README.md) | USB CDC0 | Echo/info RPCs and a cancellable long-running job | Separate programming interface |

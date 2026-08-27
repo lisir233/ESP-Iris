@@ -6,12 +6,7 @@ config ESP_IRIS_ENABLE
 
 if ESP_IRIS_ENABLE
 
-choice ESP_IRIS_TRANSPORT
-    prompt "Device transport"
-    default ESP_IRIS_TRANSPORT_TCP
-    help
-        Exactly one transport is compiled into a normal firmware image. The
-        transport cannot be changed or preempted at runtime.
+menu "Device transports"
 
 config ESP_IRIS_TRANSPORT_USB
     bool "USB CDC0 (ESP-Iris binary protocol only)"
@@ -37,11 +32,29 @@ config ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
 
 config ESP_IRIS_TRANSPORT_TCP
     bool "Raw TCP server"
+    default y if !ESP_IRIS_TRANSPORT_USB && !ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
     help
         Listen on all device interfaces. ESP-Iris does not initialize Wi-Fi,
         provision credentials, or create a network interface.
 
-endchoice
+comment "Select one or more transports; the first active client owns the session"
+    help
+        Enabled transports wait concurrently. A physical connection is only a
+        provisional candidate. The first candidate to return a valid and, when
+        configured, authenticated HELLO_ACK owns the session. Other transports
+        are stopped after a winner is confirmed and restarted when that session
+        disconnects.
+
+endmenu
+
+config ESP_IRIS_TRANSPORT_CLAIM_TIMEOUT_MS
+    int "Provisional transport handshake timeout (ms)"
+    range 250 10000
+    default 2000
+    help
+        Maximum time a physical connection may wait for a valid HELLO_ACK when
+        more than one transport is enabled. On timeout ESP-Iris releases that
+        candidate and gives other connected transports a chance to negotiate.
 
 config ESP_IRIS_TCP_PORT
     int "Raw TCP listen port"

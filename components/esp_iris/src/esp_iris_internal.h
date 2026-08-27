@@ -35,6 +35,34 @@ typedef struct {
     bool usb_serial_jtag_auto_reset_was_disabled;
 } iris_transport_state_t;
 
+struct iris_runtime;
+
+typedef struct {
+    esp_iris_transport_kind_t kind;
+    const char *name;
+    esp_err_t (*start)(struct iris_runtime *runtime,
+                       iris_transport_state_t *state);
+    void (*stop)(struct iris_runtime *runtime, iris_transport_state_t *state);
+    iris_link_event_t (*poll)(struct iris_runtime *runtime,
+                              iris_transport_state_t *state);
+    int (*read)(struct iris_runtime *runtime, iris_transport_state_t *state,
+                uint8_t *buffer, size_t capacity);
+    int (*write)(struct iris_runtime *runtime, iris_transport_state_t *state,
+                 const uint8_t *buffer, size_t length);
+} iris_transport_ops_t;
+
+typedef struct {
+    iris_transport_state_t usb;
+    iris_transport_state_t tcp;
+    iris_transport_state_t usb_serial_jtag;
+    const iris_transport_ops_t *active_ops;
+    iris_transport_state_t *active_state;
+    int64_t claim_deadline_us;
+    int64_t retry_after_us[4];
+    uint8_t scan_start;
+    bool committed;
+} iris_transport_manager_t;
+
 typedef struct {
     uint64_t monotonic_us;
     uint32_t dropped_total;
@@ -71,7 +99,7 @@ typedef struct iris_runtime {
     uint32_t pending_events;
 
     TaskHandle_t task;
-    iris_transport_state_t transport;
+    iris_transport_manager_t transport;
 
     uint8_t rx_wire[ESP_IRIS_MAX_WIRE_FRAME_SIZE];
     size_t rx_wire_length;
@@ -167,3 +195,14 @@ int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
                          size_t length);
 esp_iris_transport_kind_t iris_transport_kind(void);
 const char *iris_transport_name(void);
+void iris_transport_commit(iris_runtime_t *runtime);
+
+#if CONFIG_ESP_IRIS_TRANSPORT_USB
+extern const iris_transport_ops_t g_iris_usb_transport_ops;
+#endif
+#if CONFIG_ESP_IRIS_TRANSPORT_TCP
+extern const iris_transport_ops_t g_iris_tcp_transport_ops;
+#endif
+#if CONFIG_ESP_IRIS_TRANSPORT_USB_SERIAL_JTAG
+extern const iris_transport_ops_t g_iris_usb_serial_jtag_transport_ops;
+#endif

@@ -49,6 +49,7 @@ esp32s31-examples:
     - idf.py -C components/esp_iris/examples/minimal -B build-ci-tcp -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-tcp/sdkconfig build
     - idf.py -C components/esp_iris/examples/minimal -B build-ci-usb -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-usb/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.usb.defaults build
     - idf.py -C components/esp_iris/examples/minimal -B build-ci-usj -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-usj/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
+    - idf.py -C components/esp_iris/examples/minimal -B build-ci-multi -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-multi/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.multi.defaults build
     - idf.py -C components/esp_iris/examples/tcp_wifi -B build-ci-tcp-wifi -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-tcp-wifi/sdkconfig build
     - idf.py -C components/esp_iris/examples/tcp_pairing -B build-ci-tcp-pairing -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-tcp-pairing/sdkconfig build
     - idf.py -C components/esp_iris/examples/rpc_jobs -B build-ci-rpc-jobs -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-rpc-jobs/sdkconfig build

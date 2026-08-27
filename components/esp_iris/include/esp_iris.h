@@ -12,6 +12,8 @@ extern "C" {
 #endif
 
 typedef enum {
+    /* Local status value while multi-transport firmware has no candidate. */
+    ESP_IRIS_TRANSPORT_KIND_NONE = 0,
     ESP_IRIS_TRANSPORT_KIND_USB = 1,
     ESP_IRIS_TRANSPORT_KIND_TCP = 2,
     ESP_IRIS_TRANSPORT_KIND_USB_SERIAL_JTAG = 3,

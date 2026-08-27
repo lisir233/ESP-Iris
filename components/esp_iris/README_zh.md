@@ -54,8 +54,10 @@ Workbench、CLI 和 Agent 连接分别接收独立的事件流；修改设备的
 | Gateway | Python 3.11 或更高版本；当前真实设备主要在 Linux 验证 |
 | Workbench | 构建随组件发布的 React 源码需要当前 Node.js/npm 环境 |
 
-每个固件只编译一种设备传输，运行时不能切换；使用不同传输的
-多台设备仍可以同时连接同一个 Gateway。
+每个固件可以编译一种或多种设备传输。启用多种传输时，物理连接按有界窗口
+协商；首个返回合法 HELLO_ACK（需要 TCP 配对时还须认证通过）的传输独占
+活动 session。仅打开端口不会取得所有权。其余传输暂停，winner 断开后全部
+配置的传输重新等待。
 
 ## 快速开始
 
@@ -75,7 +77,7 @@ dependencies:
 运行 `idf.py menuconfig`，进入：
 
 ```text
-Component config > ESP-Iris device link > Device transport
+Component config > ESP-Iris device link > Device transports
 ```
 
 - **Raw TCP** 默认监听 `19772` 端口。网络接口的创建和重连由应用负责。
@@ -83,6 +85,9 @@ Component config > ESP-Iris device link > Device transport
   不是文本控制台或自动下载端口。
 - **USB Serial/JTAG** 独占固定串口但保留 JTAG。Gateway 与下载/监视工具不能
   同时打开同一个串口端点。
+
+可以选择任意兼容组合。启用多种传输时，候选连接受可配置握手超时约束；没有
+候选正在协商或活动时，`esp_iris_status_t` 的 transport 为 `NONE`。
 
 具体限制参见[示例索引](examples/README.md)。
 
@@ -200,7 +205,7 @@ offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换�
 
 | 示例 | 传输 | 适用场景 |
 | --- | --- | --- |
-| [`minimal`](examples/minimal/README.md) | TCP、USB CDC0 或 USB Serial/JTAG | 身份、生命周期、状态和日志 |
+| [`minimal`](examples/minimal/README.md) | TCP、USB CDC0、USB Serial/JTAG 或三者同时 | 身份、生命周期、状态、日志和传输仲裁 |
 | [`tcp_wifi`](examples/tcp_wifi/README.md) | TCP | 应用管理 Wi-Fi 和 DHCP |
 | [`tcp_pairing`](examples/tcp_pairing/README.md) | TCP | Challenge-HMAC 配对和 token 配置 |
 | [`rpc_jobs`](examples/rpc_jobs/README.md) | USB CDC0 | RPC handler 和可取消 Job |

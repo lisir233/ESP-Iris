@@ -20,19 +20,20 @@ static void uninstall_driver(void *argument)
     result->result = usb_serial_jtag_driver_uninstall();
 }
 
-esp_err_t iris_transport_start(iris_runtime_t *runtime)
+static esp_err_t usb_serial_jtag_start(iris_runtime_t *runtime,
+                                       iris_transport_state_t *state)
 {
-    if (runtime == NULL) {
+    if (runtime == NULL || state == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (runtime->transport.driver_started) {
+    if (state->driver_started) {
         return ESP_OK;
     }
     if (usb_serial_jtag_is_driver_installed()) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    runtime->transport.usb_serial_jtag_auto_reset_was_disabled =
+    state->usb_serial_jtag_auto_reset_was_disabled =
         REG_GET_BIT(USB_SERIAL_JTAG_CHIP_RST_REG,
                     USB_SERIAL_JTAG_USB_UART_CHIP_RST_DIS) != 0;
 #if CONFIG_ESP_IRIS_USB_SERIAL_JTAG_DISABLE_AUTO_RESET
@@ -48,7 +49,7 @@ esp_err_t iris_transport_start(iris_runtime_t *runtime)
     esp_err_t err = usb_serial_jtag_driver_install(&config);
     if (err != ESP_OK) {
 #if CONFIG_ESP_IRIS_USB_SERIAL_JTAG_DISABLE_AUTO_RESET
-        if (!runtime->transport.usb_serial_jtag_auto_reset_was_disabled) {
+        if (!state->usb_serial_jtag_auto_reset_was_disabled) {
             REG_CLR_BIT(USB_SERIAL_JTAG_CHIP_RST_REG,
                         USB_SERIAL_JTAG_USB_UART_CHIP_RST_DIS);
         }
@@ -56,28 +57,29 @@ esp_err_t iris_transport_start(iris_runtime_t *runtime)
         return err;
     }
 
-    runtime->transport.usb_serial_jtag_install_core = xPortGetCoreID();
-    runtime->transport.driver_started = true;
-    runtime->transport.link_up = false;
-    runtime->transport.reported_link_up = false;
+    state->usb_serial_jtag_install_core = xPortGetCoreID();
+    state->driver_started = true;
+    state->link_up = false;
+    state->reported_link_up = false;
     return ESP_OK;
 }
 
-void iris_transport_stop(iris_runtime_t *runtime)
+static void usb_serial_jtag_stop(iris_runtime_t *runtime,
+                                 iris_transport_state_t *state)
 {
-    if (runtime == NULL || !runtime->transport.driver_started) {
+    if (runtime == NULL || state == NULL || !state->driver_started) {
         return;
     }
 
     iris_usb_serial_jtag_uninstall_result_t result = {
         .result = ESP_FAIL,
     };
-    if (xPortGetCoreID() == runtime->transport.usb_serial_jtag_install_core) {
+    if (xPortGetCoreID() == state->usb_serial_jtag_install_core) {
         uninstall_driver(&result);
     } else {
 #if CONFIG_ESP_IPC_ENABLE
         esp_err_t ipc_err = esp_ipc_call_blocking(
-            runtime->transport.usb_serial_jtag_install_core,
+            state->usb_serial_jtag_install_core,
             uninstall_driver, &result);
         if (ipc_err != ESP_OK) {
             result.result = ipc_err;
@@ -85,43 +87,48 @@ void iris_transport_stop(iris_runtime_t *runtime)
 #endif
     }
     if (result.result == ESP_OK) {
-        runtime->transport.driver_started = false;
+        state->driver_started = false;
 #if CONFIG_ESP_IRIS_USB_SERIAL_JTAG_DISABLE_AUTO_RESET
-        if (!runtime->transport.usb_serial_jtag_auto_reset_was_disabled) {
+        if (!state->usb_serial_jtag_auto_reset_was_disabled) {
             REG_CLR_BIT(USB_SERIAL_JTAG_CHIP_RST_REG,
                         USB_SERIAL_JTAG_USB_UART_CHIP_RST_DIS);
         }
 #endif
     }
-    runtime->transport.link_up = false;
-    runtime->transport.reported_link_up = false;
+    state->link_up = false;
+    state->reported_link_up = false;
 }
 
-iris_link_event_t iris_transport_poll(iris_runtime_t *runtime)
+static iris_link_event_t usb_serial_jtag_poll(
+    iris_runtime_t *runtime, iris_transport_state_t *state)
 {
-    runtime->transport.link_up = runtime->transport.driver_started &&
-                                 usb_serial_jtag_is_connected();
-    if (runtime->transport.link_up == runtime->transport.reported_link_up) {
+    (void)runtime;
+    state->link_up = state->driver_started && usb_serial_jtag_is_connected();
+    if (state->link_up == state->reported_link_up) {
         return IRIS_LINK_EVENT_NONE;
     }
-    runtime->transport.reported_link_up = runtime->transport.link_up;
-    return runtime->transport.link_up ? IRIS_LINK_EVENT_CONNECTED
-                                      : IRIS_LINK_EVENT_DISCONNECTED;
+    state->reported_link_up = state->link_up;
+    return state->link_up ? IRIS_LINK_EVENT_CONNECTED
+                          : IRIS_LINK_EVENT_DISCONNECTED;
 }
 
-int iris_transport_read(iris_runtime_t *runtime, uint8_t *buffer,
-                        size_t capacity)
+static int usb_serial_jtag_read(iris_runtime_t *runtime,
+                                iris_transport_state_t *state,
+                                uint8_t *buffer, size_t capacity)
 {
-    if (!runtime->transport.link_up) {
+    (void)runtime;
+    if (!state->link_up) {
         return -ENOTCONN;
     }
     return usb_serial_jtag_read_bytes(buffer, capacity, 0);
 }
 
-int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
-                         size_t length)
+static int usb_serial_jtag_write(iris_runtime_t *runtime,
+                                 iris_transport_state_t *state,
+                                 const uint8_t *buffer, size_t length)
 {
-    if (!runtime->transport.link_up) {
+    (void)runtime;
+    if (!state->link_up) {
         return -ENOTCONN;
     }
     const size_t chunk = length < IRIS_USB_SERIAL_JTAG_WRITE_CHUNK
@@ -129,12 +136,12 @@ int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
     return usb_serial_jtag_write_bytes(buffer, chunk, 0);
 }
 
-esp_iris_transport_kind_t iris_transport_kind(void)
-{
-    return ESP_IRIS_TRANSPORT_KIND_USB_SERIAL_JTAG;
-}
-
-const char *iris_transport_name(void)
-{
-    return "usb-serial-jtag";
-}
+const iris_transport_ops_t g_iris_usb_serial_jtag_transport_ops = {
+    .kind = ESP_IRIS_TRANSPORT_KIND_USB_SERIAL_JTAG,
+    .name = "usb-serial-jtag",
+    .start = usb_serial_jtag_start,
+    .stop = usb_serial_jtag_stop,
+    .poll = usb_serial_jtag_poll,
+    .read = usb_serial_jtag_read,
+    .write = usb_serial_jtag_write,
+};

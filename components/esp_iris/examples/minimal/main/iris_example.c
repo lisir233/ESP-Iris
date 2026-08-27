@@ -10,6 +10,8 @@
 static const char *transport_name(esp_iris_transport_kind_t transport)
 {
     switch (transport) {
+    case ESP_IRIS_TRANSPORT_KIND_NONE:
+        return "waiting";
     case ESP_IRIS_TRANSPORT_KIND_USB:
         return "usb";
     case ESP_IRIS_TRANSPORT_KIND_TCP:
