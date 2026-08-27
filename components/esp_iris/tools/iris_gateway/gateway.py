@@ -45,6 +45,55 @@ from .store import GatewayStore
 LOG_PATTERN = re.compile(r"^(?P<level>[EWIDV])\s+\((?P<stamp>\d+)\)\s+(?P<tag>[^:]+):\s?(?P<message>.*)$")
 CONSOLE_METHOD_NAME = "console.execute"
 CONSOLE_LINE_MAX_BYTES = 255
+OTA_VALIDATION_MODES = ("elf_sha256", "version")
+DEFAULT_OTA_VALIDATION_MODE = "elf_sha256"
+
+
+def _require_ota_validation_mode(value: str) -> str:
+    if value not in OTA_VALIDATION_MODES:
+        choices = ", ".join(OTA_VALIDATION_MODES)
+        raise ValueError(f"OTA validation mode must be one of: {choices}")
+    return value
+
+
+def _validate_ota_identity(
+    status: dict[str, Any],
+    metadata: dict[str, Any],
+    validation_mode: str,
+) -> dict[str, str]:
+    validation_mode = _require_ota_validation_mode(validation_mode)
+    if status.get("project_name") != metadata.get("project_name"):
+        raise RuntimeError("device reconnected with an unexpected firmware project")
+
+    if validation_mode == "elf_sha256":
+        expected_field = "elf_sha256"
+        actual_field = "firmware_sha256"
+        expected = str(metadata.get(expected_field, "")).lower()
+        actual = str(status.get(actual_field, "")).lower()
+        label = "firmware ELF SHA-256"
+    else:
+        expected_field = "version"
+        actual_field = "app_version"
+        expected = str(metadata.get(expected_field, ""))
+        actual = str(status.get(actual_field, ""))
+        label = "firmware version"
+
+    if not expected:
+        raise RuntimeError(f"OTA artifact is missing the expected {label}")
+    if not actual:
+        raise RuntimeError(f"device did not report its {label}")
+    if actual != expected:
+        raise RuntimeError(
+            f"device reconnected with an unexpected {label}: "
+            f"expected {expected}, got {actual}"
+        )
+    return {
+        "mode": validation_mode,
+        "expected_field": expected_field,
+        "actual_field": actual_field,
+        "expected": expected,
+        "actual": actual,
+    }
 
 
 class GatewayService:
@@ -263,10 +312,12 @@ class GatewayService:
         metadata: dict[str, Any],
         operation_id: str,
         execution_mode: str = "recovery",
+        validation_mode: str = DEFAULT_OTA_VALIDATION_MODE,
     ) -> dict[str, Any]:
-        before = await self.device_hub.status(device_id)
         if execution_mode not in {"recovery", "application"}:
             raise ValueError("OTA execution mode must be recovery or application")
+        validation_mode = _require_ota_validation_mode(validation_mode)
+        before = await self.device_hub.status(device_id)
         if (
             before.get("ota_project_name_match_required", False)
             and before.get("project_name")
@@ -368,10 +419,15 @@ class GatewayService:
                 job_id=result.get("job_id"),
             )
             if result.get("healthy"):
+                status = await self.device_hub.status(device_id)
+                validation = _validate_ota_identity(
+                    status, metadata, validation_mode
+                )
                 return {
                     **result,
                     "validated_image": metadata,
                     "execution_mode": execution_mode,
+                    "validation": validation,
                     "recovery_boot_id": recovery_boot,
                 }
             assert queue is not None
@@ -407,14 +463,12 @@ class GatewayService:
             if new_boot is None or not healthy:
                 raise RuntimeError("OTA reconnect/healthy acceptance did not close within 45 seconds")
             status = await self.device_hub.status(device_id)
-            if status.get("app_version") != metadata["version"]:
-                raise RuntimeError("device reconnected with an unexpected firmware version")
-            if status.get("project_name") != metadata["project_name"]:
-                raise RuntimeError("device reconnected with an unexpected firmware project")
+            validation = _validate_ota_identity(status, metadata, validation_mode)
             return {
                 **result,
                 "validated_image": metadata,
                 "execution_mode": execution_mode,
+                "validation": validation,
                 "planned_restart_ms": delay,
                 "previous_boot_id": previous_boot,
                 "recovery_boot_id": recovery_boot,
@@ -1137,6 +1191,9 @@ def create_app(service: GatewayService) -> web.Application:
         body = await _json_body(request)
         artifact_id = str(body.get("artifact_id", ""))
         execution_mode = str(body.get("execution_mode", execution_mode))
+        validation_mode = _require_ota_validation_mode(
+            str(body.get("validation_mode", DEFAULT_OTA_VALIDATION_MODE))
+        )
         artifact = service.store.firmware_artifact(artifact_id)
         if artifact is None:
             raise KeyError("unknown firmware artifact")
@@ -1153,6 +1210,7 @@ def create_app(service: GatewayService) -> web.Application:
                 "image": metadata,
                 "artifact_id": artifact_id,
                 "execution_mode": execution_mode,
+                "validation_mode": validation_mode,
             },
             lambda: service.closed_loop_ota(
                 device_id,
@@ -1160,6 +1218,7 @@ def create_app(service: GatewayService) -> web.Application:
                 metadata,
                 operation_id,
                 execution_mode=execution_mode,
+                validation_mode=validation_mode,
             ),
             operation_id=operation_id,
         )
@@ -1297,4 +1356,9 @@ def create_app(service: GatewayService) -> web.Application:
     return app
 
 
-__all__ = ["GatewayService", "create_app"]
+__all__ = [
+    "DEFAULT_OTA_VALIDATION_MODE",
+    "OTA_VALIDATION_MODES",
+    "GatewayService",
+    "create_app",
+]

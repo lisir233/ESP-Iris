@@ -212,10 +212,19 @@ python "$IRIS" ctl mirror DEVICE_ID stop
 python "$IRIS" ctl restart DEVICE_ID
 python "$IRIS" ctl firmware-add build/app.bin
 python "$IRIS" ctl ota DEVICE_ID build/app.bin
+python "$IRIS" ctl ota DEVICE_ID build/app.bin --validation-mode version
 python "$IRIS" ctl ota-status OPERATION_ID
 python "$IRIS" ctl ota-watch OPERATION_ID
 python "$IRIS" ctl mode observe
 ```
+
+OTA validates the firmware identity again after the device reconnects. The
+default `elf_sha256` mode compares the ELF SHA-256 embedded in the uploaded BIN
+with the running device's reported firmware SHA-256. Use
+`--validation-mode version` only for compatibility with workflows that must
+compare the project version string instead. The Workbench OTA dialog and the
+REST request field `validation_mode` expose the same choice; supported values
+are `elf_sha256` and `version`.
 
 Use `ctl --json` for stable machine-readable output. A remote Gateway or local
 Gateway started with `--require-local-auth` requires a login or named Agent

@@ -3,7 +3,13 @@ from typing import Any
 
 import pytest
 
-from iris_gateway.gateway import GatewayService
+from iris_gateway.gateway import (
+    DEFAULT_OTA_VALIDATION_MODE,
+    GatewayService,
+    _validate_ota_identity,
+)
+
+ELF_SHA256 = "11" * 32
 
 
 class ReenumeratingHub:
@@ -34,10 +40,18 @@ class ReenumeratingHub:
             }
         if self.status_calls == 2:
             raise ConnectionError("ESP-Iris session closed")
+        if self.status_calls == 3:
+            return {
+                "boot_id": 20,
+                "firmware_mode": "recovery",
+                "project_name": "iris_get_started",
+            }
         return {
-            "boot_id": 20,
-            "firmware_mode": "recovery",
+            "boot_id": 30,
+            "firmware_mode": "normal",
             "project_name": "iris_get_started",
+            "app_version": "1.0.2",
+            "firmware_sha256": ELF_SHA256,
         }
 
     async def enter_recovery(self, device_id: str) -> None:
@@ -89,6 +103,9 @@ class ProjectPolicyHub:
     def __init__(self, required: bool | None) -> None:
         self.required = required
         self.ota_updates = 0
+        self.updated = False
+        self.target_project = "old-project"
+        self.target_version = "1.0.0"
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
     def subscribe(self, device_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -103,6 +120,14 @@ class ProjectPolicyHub:
 
     async def status(self, device_id: str) -> dict[str, Any]:
         assert device_id == "device-a"
+        if self.updated:
+            return {
+                "boot_id": 20,
+                "firmware_mode": "normal",
+                "project_name": self.target_project,
+                "app_version": self.target_version,
+                "firmware_sha256": ELF_SHA256,
+            }
         result: dict[str, Any] = {
             "boot_id": 10,
             "firmware_mode": "normal",
@@ -113,9 +138,11 @@ class ProjectPolicyHub:
         return result
 
     async def ota_update(self, device_id: str, image: bytes, **kwargs) -> dict[str, Any]:
-        del kwargs
         assert device_id == "device-a"
         assert image == b"firmware"
+        self.target_project = str(kwargs["project_name"])
+        self.target_version = str(kwargs["version"])
+        self.updated = True
         self.ota_updates += 1
         return {"healthy": True, "bytes": len(image), "partition": "ota_0"}
 
@@ -138,8 +165,8 @@ class RestartRaceHub(ProjectPolicyHub):
             "firmware_mode": "normal",
             "project_name": "esp_iris_ota",
             "app_version": "1.0.2",
+            "firmware_sha256": ELF_SHA256,
         }
-
 
     async def ota_update(self, device_id: str, image: bytes, **kwargs) -> dict[str, Any]:
         del kwargs
@@ -175,10 +202,18 @@ class RecoveryWriteRaceHub(ReenumeratingHub):
             }
         if self.status_calls == 2:
             raise PermissionError("Windows removed the COM endpoint")
+        if self.status_calls == 3:
+            return {
+                "boot_id": 20,
+                "firmware_mode": "recovery",
+                "project_name": "iris_get_started",
+            }
         return {
-            "boot_id": 20,
-            "firmware_mode": "recovery",
+            "boot_id": 30,
+            "firmware_mode": "normal",
             "project_name": "iris_get_started",
+            "app_version": "1.0.2",
+            "firmware_sha256": ELF_SHA256,
         }
 
     async def enter_recovery(self, device_id: str) -> None:
@@ -186,6 +221,58 @@ class RecoveryWriteRaceHub(ReenumeratingHub):
         self.entered_recovery = True
         raise PermissionError("Windows removed the COM endpoint")
 
+
+def test_ota_identity_validation_defaults_to_elf_sha256() -> None:
+    assert DEFAULT_OTA_VALIDATION_MODE == "elf_sha256"
+    validation = _validate_ota_identity(
+        {
+            "project_name": "iris_get_started",
+            "app_version": "unchanged",
+            "firmware_sha256": ELF_SHA256.upper(),
+        },
+        {
+            "project_name": "iris_get_started",
+            "version": "1.0.2",
+            "elf_sha256": ELF_SHA256,
+        },
+        DEFAULT_OTA_VALIDATION_MODE,
+    )
+    assert validation["mode"] == "elf_sha256"
+    assert validation["actual"] == ELF_SHA256
+
+
+def test_ota_identity_validation_can_compare_version() -> None:
+    validation = _validate_ota_identity(
+        {
+            "project_name": "iris_get_started",
+            "app_version": "1.0.2",
+            "firmware_sha256": "22" * 32,
+        },
+        {
+            "project_name": "iris_get_started",
+            "version": "1.0.2",
+            "elf_sha256": ELF_SHA256,
+        },
+        "version",
+    )
+    assert validation["mode"] == "version"
+    assert validation["actual_field"] == "app_version"
+
+
+def test_ota_identity_validation_rejects_hash_mismatch() -> None:
+    with pytest.raises(RuntimeError, match="unexpected firmware ELF SHA-256"):
+        _validate_ota_identity(
+            {
+                "project_name": "iris_get_started",
+                "firmware_sha256": "22" * 32,
+            },
+            {
+                "project_name": "iris_get_started",
+                "version": "1.0.2",
+                "elf_sha256": ELF_SHA256,
+            },
+            "elf_sha256",
+        )
 
 def test_closed_loop_ota_waits_through_recovery_session_close() -> None:
     async def scenario() -> None:
@@ -202,16 +289,18 @@ def test_closed_loop_ota_waits_through_recovery_session_close() -> None:
                 "sha256": "00" * 32,
                 "project_name": "iris_get_started",
                 "version": "1.0.2",
+                "elf_sha256": ELF_SHA256,
             },
             "ota-op",
             execution_mode="recovery",
         )
 
         assert hub.entered_recovery is True
-        assert hub.status_calls == 3
+        assert hub.status_calls == 4
         assert hub.ota_updates == 1
         assert result["recovery_boot_id"] == 20
         assert result["healthy"] is True
+        assert result["validation"]["mode"] == "elf_sha256"
         assert [update["stage"] for update in operations.progress_updates[:2]] == [
             "entering_recovery",
             "waiting_recovery",
@@ -234,6 +323,7 @@ def test_closed_loop_ota_allows_project_change_by_default() -> None:
                 "sha256": "00" * 32,
                 "project_name": "new-project",
                 "version": "1.0.2",
+                "elf_sha256": ELF_SHA256,
             },
             "ota-op",
             execution_mode="application",
@@ -259,6 +349,7 @@ def test_closed_loop_ota_reconciles_recovery_rpc_write_race() -> None:
                 "sha256": "00" * 32,
                 "project_name": "iris_get_started",
                 "version": "1.0.2",
+                "elf_sha256": ELF_SHA256,
             },
             "ota-op",
             execution_mode="recovery",
@@ -285,6 +376,7 @@ def test_closed_loop_ota_reconciles_restart_race_after_end_response() -> None:
                 "sha256": "00" * 32,
                 "project_name": "esp_iris_ota",
                 "version": "1.0.2",
+                "elf_sha256": ELF_SHA256,
             },
             "ota-op",
             execution_mode="recovery",
@@ -312,6 +404,7 @@ def test_closed_loop_ota_rejects_project_change_when_required() -> None:
                     "sha256": "00" * 32,
                     "project_name": "new-project",
                     "version": "1.0.2",
+                    "elf_sha256": ELF_SHA256,
                 },
                 "ota-op",
                 execution_mode="application",

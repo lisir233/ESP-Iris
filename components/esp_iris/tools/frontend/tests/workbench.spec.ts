@@ -42,6 +42,20 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   await expect(page.getByLabel("方法")).toHaveValue("system.info");
   await page.getByLabel("关闭").click();
 
+  await page.getByRole("button", { name: "OTA 更新", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "执行 OTA 更新" })).toBeVisible();
+  const validationMode = page.getByLabel("完成后校验");
+  await expect(validationMode).toHaveValue("elf_sha256");
+  await validationMode.selectOption("version");
+  await expect(validationMode).toHaveValue("version");
+  await validationMode.selectOption("elf_sha256");
+  await page.screenshot({ path: process.env.ESP_IRIS_OTA_SCREENSHOT || "/tmp/esp-iris-ota-validation.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(validationMode).toBeVisible();
+  await page.screenshot({ path: process.env.ESP_IRIS_OTA_MOBILE_SCREENSHOT || "/tmp/esp-iris-ota-validation-mobile.png" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByLabel("关闭").click();
+
   await page.getByRole("button", { name: "记录", exact: true }).click();
   await expect(page.getByRole("tab", { name: "设备操作" })).toBeVisible();
   await page.getByRole("tab", { name: "系统事件" }).click();

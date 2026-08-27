@@ -16,6 +16,7 @@ type Props = {
 
 type Dialog = "rpc" | "raw" | "restart" | "factory" | "ota" | "job" | null;
 type RpcMethod = { name: string; service_id: number; method_id: number; timeout_ms: number };
+type OtaValidationMode = "elf_sha256" | "version";
 
 export default function Workspace({ device, status, mode, operations, events, refresh, onOpenRecords }: Props) {
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -28,6 +29,7 @@ export default function Workspace({ device, status, mode, operations, events, re
   const [jobId, setJobId] = useState("1");
   const [otaFiles, setOtaFiles] = useState<{ bin: File | null; elf: File | null; map: File | null }>({ bin: null, elf: null, map: null });
   const [otaExecutionMode, setOtaExecutionMode] = useState<"recovery" | "application">("recovery");
+  const [otaValidationMode, setOtaValidationMode] = useState<OtaValidationMode>("elf_sha256");
   const [consoleOpen, setConsoleOpen] = useState(false);
   const deviceOperations = operations.filter((item) => item.device_id === device?.device_id);
   const disabled = mode === "observe" || !device?.connected;
@@ -68,7 +70,7 @@ export default function Workspace({ device, status, mode, operations, events, re
       const archived = await api<{ artifact: { artifact_id: string } }>("/v1/firmware-artifacts", { method: "POST", body: form });
       const accepted = await api<{ operation: { operation_id: string } }>(`/v1/devices/${deviceId}/ota`, {
         method: "POST",
-        body: JSON.stringify({ artifact_id: archived.artifact.artifact_id, execution_mode: otaExecutionMode }),
+        body: JSON.stringify({ artifact_id: archived.artifact.artifact_id, execution_mode: otaExecutionMode, validation_mode: otaValidationMode }),
         headers: { "Content-Type": "application/json" },
       });
       setNotice(`OTA 已受理 · ${accepted.operation.operation_id}，请在时间线查看进度`);
@@ -140,7 +142,7 @@ export default function Workspace({ device, status, mode, operations, events, re
         <details className="logs-disclosure" open><summary>设备日志 <span>{events.filter((item) => item.category === "log" && item.device_id === device.device_id).length} 条</span></summary><LogsPanel events={events} deviceId={device.device_id} compact /></details>
       </section>
       {consoleOpen && <ConsoleDialog deviceId={device.device_id} events={events} onClose={() => setConsoleOpen(false)} />}
-      {dialog && <ActionDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={submitDialog} rpcParams={rpcParams} setRpcParams={setRpcParams} rpcMethods={rpcMethods} rpcMethod={rpcMethod} setRpcMethod={setRpcMethod} rawIds={rawIds} setRawIds={setRawIds} jobId={jobId} setJobId={setJobId} otaFiles={otaFiles} setOtaFiles={setOtaFiles} otaExecutionMode={otaExecutionMode} setOtaExecutionMode={setOtaExecutionMode} />}
+      {dialog && <ActionDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onSubmit={submitDialog} rpcParams={rpcParams} setRpcParams={setRpcParams} rpcMethods={rpcMethods} rpcMethod={rpcMethod} setRpcMethod={setRpcMethod} rawIds={rawIds} setRawIds={setRawIds} jobId={jobId} setJobId={setJobId} otaFiles={otaFiles} setOtaFiles={setOtaFiles} otaExecutionMode={otaExecutionMode} setOtaExecutionMode={setOtaExecutionMode} otaValidationMode={otaValidationMode} setOtaValidationMode={setOtaValidationMode} />}
     </div>
   );
 }
@@ -458,13 +460,15 @@ type ActionProps = {
   setOtaFiles: (value: { bin: File | null; elf: File | null; map: File | null }) => void;
   otaExecutionMode: "recovery" | "application";
   setOtaExecutionMode: (value: "recovery" | "application") => void;
+  otaValidationMode: OtaValidationMode;
+  setOtaValidationMode: (value: OtaValidationMode) => void;
 };
 
 function ActionDialog(props: ActionProps) {
   const dangerous = ["raw", "restart", "factory", "ota", "job"].includes(props.dialog);
   const titles = { rpc: "调用 RPC", raw: "发送原始 RPC", restart: "确认重启设备", factory: "进入 Factory Recovery", ota: "执行 OTA 更新", job: "取消设备 Job" };
   const otaReady = Boolean(props.otaFiles.bin && props.otaFiles.elf && props.otaFiles.map);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={props.onClose}><section className="action-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-heading"><h2>{titles[props.dialog]}</h2><button aria-label="关闭" onClick={props.onClose}>×</button></div>{props.dialog === "rpc" && <><label>方法<select value={props.rpcMethod} onChange={(event) => props.setRpcMethod(event.target.value)}>{props.rpcMethods.map((method) => <option key={method.name} value={method.name}>{method.name} · {method.timeout_ms} ms</option>)}</select></label><label>JSON 参数<textarea value={props.rpcParams} onChange={(event) => props.setRpcParams(event.target.value)} /></label></>}{props.dialog === "raw" && <><div className="field-pair"><label>Service ID<input value={props.rawIds.service} onChange={(event) => props.setRawIds({ ...props.rawIds, service: event.target.value })} /></label><label>Method ID<input value={props.rawIds.method} onChange={(event) => props.setRawIds({ ...props.rawIds, method: event.target.value })} /></label></div><label>原始载荷<textarea value={props.rawIds.payload} onChange={(event) => props.setRawIds({ ...props.rawIds, payload: event.target.value })} /></label></>}{props.dialog === "job" && <label>Job ID<input type="number" value={props.jobId} onChange={(event) => props.setJobId(event.target.value)} /></label>}{props.dialog === "ota" && <><label>执行位置<select value={props.otaExecutionMode} onChange={(event) => props.setOtaExecutionMode(event.target.value as "recovery" | "application")}><option value="recovery">Factory Recovery（默认）</option><option value="application">当前应用</option></select></label>{(["bin", "elf", "map"] as const).map((kind) => <label className="file-field" key={kind}>{kind.toUpperCase()} 文件<input type="file" accept={`.${kind},application/octet-stream`} onChange={(event) => props.setOtaFiles({ ...props.otaFiles, [kind]: event.target.files?.[0] || null })} /><span>{props.otaFiles[kind]?.name || `选择 .${kind} 文件`}</span></label>)}</>}{props.dialog === "restart" && <p className="dialog-copy">设备会在 250 ms 后重启；网关会继续等待设备重新连接。</p>}{props.dialog === "factory" && <p className="dialog-copy">设备将进入 Factory Recovery 并重启。只有明确支持此能力的固件才能执行。</p>}{dangerous && <div className="confirm-warning"><span>!</span><p><strong>需要开发者确认</strong><small>此操作会改变当前设备状态，请确认设备和操作无误。</small></p></div>}<footer><button onClick={props.onClose}>取消</button><button className={dangerous ? "danger-button" : "primary-button"} disabled={props.busy || (props.dialog === "ota" && !otaReady) || (props.dialog === "rpc" && !props.rpcMethod)} onClick={props.onSubmit}>{props.busy ? "执行中…" : "确认执行"}</button></footer></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={props.onClose}><section className="action-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-heading"><h2>{titles[props.dialog]}</h2><button aria-label="关闭" onClick={props.onClose}>×</button></div>{props.dialog === "rpc" && <><label>方法<select value={props.rpcMethod} onChange={(event) => props.setRpcMethod(event.target.value)}>{props.rpcMethods.map((method) => <option key={method.name} value={method.name}>{method.name} · {method.timeout_ms} ms</option>)}</select></label><label>JSON 参数<textarea value={props.rpcParams} onChange={(event) => props.setRpcParams(event.target.value)} /></label></>}{props.dialog === "raw" && <><div className="field-pair"><label>Service ID<input value={props.rawIds.service} onChange={(event) => props.setRawIds({ ...props.rawIds, service: event.target.value })} /></label><label>Method ID<input value={props.rawIds.method} onChange={(event) => props.setRawIds({ ...props.rawIds, method: event.target.value })} /></label></div><label>原始载荷<textarea value={props.rawIds.payload} onChange={(event) => props.setRawIds({ ...props.rawIds, payload: event.target.value })} /></label></>}{props.dialog === "job" && <label>Job ID<input type="number" value={props.jobId} onChange={(event) => props.setJobId(event.target.value)} /></label>}{props.dialog === "ota" && <><label>执行位置<select value={props.otaExecutionMode} onChange={(event) => props.setOtaExecutionMode(event.target.value as "recovery" | "application")}><option value="recovery">Factory Recovery（默认）</option><option value="application">当前应用</option></select></label><label>完成后校验<select value={props.otaValidationMode} onChange={(event) => props.setOtaValidationMode(event.target.value as OtaValidationMode)}><option value="elf_sha256">ELF SHA-256（默认）</option><option value="version">项目版本号（兼容）</option></select></label>{(["bin", "elf", "map"] as const).map((kind) => <label className="file-field" key={kind}>{kind.toUpperCase()} 文件<input type="file" accept={`.${kind},application/octet-stream`} onChange={(event) => props.setOtaFiles({ ...props.otaFiles, [kind]: event.target.files?.[0] || null })} /><span>{props.otaFiles[kind]?.name || `选择 .${kind} 文件`}</span></label>)}</>}{props.dialog === "restart" && <p className="dialog-copy">设备会在 250 ms 后重启；网关会继续等待设备重新连接。</p>}{props.dialog === "factory" && <p className="dialog-copy">设备将进入 Factory Recovery 并重启。只有明确支持此能力的固件才能执行。</p>}{dangerous && <div className="confirm-warning"><span>!</span><p><strong>需要开发者确认</strong><small>此操作会改变当前设备状态，请确认设备和操作无误。</small></p></div>}<footer><button onClick={props.onClose}>取消</button><button className={dangerous ? "danger-button" : "primary-button"} disabled={props.busy || (props.dialog === "ota" && !otaReady) || (props.dialog === "rpc" && !props.rpcMethod)} onClick={props.onSubmit}>{props.busy ? "执行中…" : "确认执行"}</button></footer></section></div>;
 }
 
 function ConsoleDialog({ deviceId, events, onClose }: { deviceId: string; events: GatewayEvent[]; onClose: () => void }) {

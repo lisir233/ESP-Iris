@@ -28,7 +28,12 @@ from aiohttp import (
 
 from .demo import DemoHub
 from .discovery import discover_iris_usb_devices
-from .gateway import GatewayService, create_app
+from .gateway import (
+    DEFAULT_OTA_VALIDATION_MODE,
+    OTA_VALIDATION_MODES,
+    GatewayService,
+    create_app,
+)
 from .hub import IrisHub
 from .security import DEFAULT_DEVELOPER_PASSWORD
 from .store import GatewayStore
@@ -501,6 +506,7 @@ async def _ctl(args: argparse.Namespace) -> int:
                         json={
                             "artifact_id": artifact["artifact_id"],
                             "execution_mode": args.execution_mode,
+                            "validation_mode": args.validation_mode,
                         },
                         headers={"X-Operation-ID": operation_id},
                         ssl=ssl_value,
@@ -708,6 +714,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--execution-mode",
         choices=("recovery", "application"),
         default="recovery",
+    )
+    ota.add_argument(
+        "--validation-mode",
+        choices=OTA_VALIDATION_MODES,
+        default=DEFAULT_OTA_VALIDATION_MODE,
+        help="post-reboot firmware identity comparison (default: elf_sha256)",
     )
     ota.add_argument("--wait", action="store_true")
     ota.add_argument("--interval", type=float, default=0.5)

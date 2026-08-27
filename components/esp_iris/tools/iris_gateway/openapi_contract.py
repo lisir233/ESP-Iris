@@ -64,6 +64,30 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
     }
     for path, summary in control_paths.items():
         paths[path] = {"post": {"summary": summary}}
+    paths["/v1/devices/{device_id}/ota"]["post"]["requestBody"] = {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "required": ["artifact_id"],
+                    "properties": {
+                        "artifact_id": {"type": "string"},
+                        "execution_mode": {
+                            "type": "string",
+                            "enum": ["recovery", "application"],
+                            "default": "recovery",
+                        },
+                        "validation_mode": {
+                            "type": "string",
+                            "enum": ["elf_sha256", "version"],
+                            "default": "elf_sha256",
+                        },
+                    },
+                }
+            }
+        },
+    }
     paths["/v1/devices/{device_id}/jobs/{job_id}"] = {
         "get": {"summary": "Query job"},
         "delete": {"summary": "Cancel job"},

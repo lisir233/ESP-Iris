@@ -68,7 +68,17 @@ def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) 
             assert operation is not None
             assert operation["status"] == "succeeded"
             assert operation["result"]["execution_mode"] == "recovery"
+            assert operation["result"]["validation"]["mode"] == "elf_sha256"
             assert "preserved_coredump" not in operation["result"]
+
+            invalid_validation = await client.post(
+                "/v1/devices/demo-a1b2c3d4/ota",
+                json={
+                    "artifact_id": artifact["artifact_id"],
+                    "validation_mode": "unsupported",
+                },
+            )
+            assert invalid_validation.status == 400
         finally:
             await client.close()
             await hub.close()
@@ -560,6 +570,19 @@ def test_local_auth_cli_is_opt_in() -> None:
     )
     assert console.ctl_command == "console"
     assert console.line == ["iris_info"]
+    ota_default = parser.parse_args(["ctl", "ota", "device-a", "app.bin"])
+    assert ota_default.validation_mode == "elf_sha256"
+    ota_version = parser.parse_args(
+        [
+            "ctl",
+            "ota",
+            "device-a",
+            "app.bin",
+            "--validation-mode",
+            "version",
+        ]
+    )
+    assert ota_version.validation_mode == "version"
 
 
 def test_file_api_lists_and_streams_demo_volume(tmp_path) -> None:

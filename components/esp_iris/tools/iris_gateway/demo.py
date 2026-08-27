@@ -12,6 +12,8 @@ import zlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
+from .firmware import inspect_firmware_image
+
 EventSink = Callable[[dict[str, Any]], Awaitable[None]]
 
 
@@ -589,8 +591,10 @@ class DemoHub:
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         device = self.get(device_id)
-        if expected_sha256 and hashlib.sha256(image).digest() != expected_sha256:
+        binary_sha256 = hashlib.sha256(image)
+        if expected_sha256 and binary_sha256.digest() != expected_sha256:
             raise ValueError("OTA SHA-256 mismatch")
+        firmware = inspect_firmware_image(image)
         if progress_callback is not None:
             await progress_callback(
                 {
@@ -607,7 +611,7 @@ class DemoHub:
         device.update(
             app_version=version or device["app_version"],
             project_name=project_name or device["project_name"],
-            firmware_sha256=hashlib.sha256(image).hexdigest(),
+            firmware_sha256=firmware.elf_sha256,
             boot_id=old_boot + 1,
             firmware_mode="normal",
         )
@@ -624,7 +628,7 @@ class DemoHub:
         return {
             "accepted": True,
             "bytes": len(image),
-            "sha256": device["firmware_sha256"],
+            "sha256": binary_sha256.hexdigest(),
             "expected_version": device["app_version"],
             "previous_boot_id": old_boot,
             "boot_id": device["boot_id"],
