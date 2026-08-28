@@ -13,6 +13,7 @@ from .discovery import discover_iris_usb_devices
 from .link import EndpointLock, Link, SerialLink, TcpLink
 from .protocol import ProtocolError, Transport
 from .session import DeviceSession
+from .system_update import SystemUpdateBundle
 
 LinkOpener = Callable[[], Awaitable[Link]]
 EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -624,6 +625,23 @@ class IrisHub:
 
     async def ota_status(self, device_id: str) -> dict[str, Any]:
         return await self.get(device_id).ota_status()
+
+    async def system_update(
+        self,
+        device_id: str,
+        bundle: SystemUpdateBundle,
+        *,
+        operation_id: bytes,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        return await self.get(device_id).system_update(
+            bundle,
+            operation_id=operation_id,
+            progress_callback=progress_callback,
+        )
+
+    async def system_update_inventory(self, device_id: str) -> dict[str, Any]:
+        return await self.get(device_id).system_update_inventory()
 
     async def restart(self, device_id: str, delay_ms: int = 250) -> int:
         return await self.get(device_id).restart(delay_ms)

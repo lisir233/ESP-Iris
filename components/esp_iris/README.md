@@ -168,6 +168,8 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 | Crash evidence | Read-only when present | Chunked by `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` |
 | TCP pairing | Disabled by default | One NVS token and challenge-HMAC state |
 | OTA writer | Configurable; cross-project updates allowed by default | Chunked by `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES`; `CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` opts into matching the running project |
+| System inventory | Disabled until a read-only product provider registers | Actual protected-region hashes and last committed operation; no write callbacks |
+| System Update | Disabled until recovery registers a product backend | Signed manifest, `CONFIG_ESP_IRIS_SYSTEM_UPDATE_MAX_COMPONENTS`, bounded manifest/signature/chunk sizes, and no generic raw-Flash API |
 | File service | Disabled until the application registers a logical volume | One file task, one stream, and `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` per chunk |
 
 The component uses credit-based channels and a latest-chunk policy for media.
@@ -214,6 +216,13 @@ cross-volume operations are not exposed.
   only on a trusted development LAN, or enable Gateway TLS.
 - Wi-Fi credentials, pairing tokens, TLS private keys, and Agent Tokens must
   remain in ignored local configuration or private files.
+- System Update is advertised only by a retained recovery image with both a
+  read-only inventory provider and a registered write backend. Normal firmware
+  may register only the inventory provider for post-reboot verification. The
+  Gateway and device independently verify the signed manifest. The backend
+  must pin its trust key, protect fixed system regions, and validate every
+  component against the authenticated plan. Inventory hashes are calculated
+  from the actual protected Flash ranges, including erased-byte padding.
 
 ## Examples
 
@@ -236,6 +245,8 @@ of the published component archive.
 ## Documentation map
 
 - [Public C API](include/esp_iris.h)
+- [System Inventory provider API](include/esp_iris_system_inventory.h)
+- [System Update backend API](include/esp_iris_system_update.h)
 - [Protocol constants](include/esp_iris_protocol.h)
 - [Wire protocol v1](protocol/spec.md)
 - [Golden protocol vectors](protocol/golden_vectors.json)

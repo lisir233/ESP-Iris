@@ -37,6 +37,10 @@ from .gateway import (
 from .hub import IrisHub
 from .security import DEFAULT_DEVELOPER_PASSWORD
 from .store import GatewayStore
+from .system_update import (
+    build_system_update_bundle,
+    load_system_update_bundle,
+)
 from .tls import ensure_certificate, ssl_context
 
 
@@ -90,10 +94,13 @@ def _recover_interrupted(store: GatewayStore) -> None:
     rows = store.db.execute(
         "SELECT operation_id, action FROM operations WHERE status IN "
         "('queued','running','entering_recovery','waiting_recovery',"
-        "'transferring','verifying','waiting_device','reconnecting')"
+        "'preserving_evidence','validating_plan','transferring','verifying',"
+        "'committing','waiting_device','reconnecting')"
     ).fetchall()
     for row in rows:
-        uncertain = str(row["action"]).startswith(("rpc.", "device.restart", "firmware.ota"))
+        uncertain = str(row["action"]).startswith(
+            ("rpc.", "device.restart", "firmware.ota", "firmware.system_update")
+        )
         store.update_operation(
             row["operation_id"],
             status="outcome_unknown" if uncertain else "interrupted",
@@ -108,12 +115,17 @@ async def _web(args: argparse.Namespace) -> None:
     state_dir = pathlib.Path(args.state_dir) if args.state_dir else _default_state_dir(args.instance_id)
     store = GatewayStore(state_dir)
     _recover_interrupted(store)
+    system_update_trust_key = None
+    if args.system_update_trust_key:
+        trust_path = pathlib.Path(args.system_update_trust_key).expanduser().resolve()
+        system_update_trust_key = trust_path.read_bytes()
     service = GatewayService(
         store,
         instance_id=args.instance_id,
         demo=args.demo,
         require_local_auth=args.require_local_auth,
         frontend_dist=pathlib.Path(__file__).resolve().parent.parent / "frontend" / "dist",
+        system_update_trust_key=system_update_trust_key,
     )
     listener_is_loopback = _listen_is_loopback(args.listen)
     default_password_selected = False
@@ -522,6 +534,32 @@ async def _ctl(args: argparse.Namespace) -> int:
                         )
                         accepted["operation"] = operation
                     _output(accepted, args.json)
+            elif command == "system-update":
+                bundle_path = pathlib.Path(args.bundle).expanduser().resolve()
+                if not bundle_path.is_file():
+                    raise ValueError(f"system-update bundle does not exist: {bundle_path}")
+                operation_id = str(uuid.uuid4())
+                url = base + f"/v1/devices/{args.device}/system-update"
+                async with session.post(
+                    url,
+                    data=bundle_path.read_bytes(),
+                    headers={
+                        "Content-Type": "application/vnd.esp-iris.system-update+zip",
+                        "X-Operation-ID": operation_id,
+                    },
+                    ssl=ssl_value,
+                ) as response:
+                    accepted = await _response_json(response)
+                if args.wait:
+                    operation = await _operation_watch(
+                        session,
+                        base,
+                        ssl_value,
+                        operation_id,
+                        interval=args.interval,
+                    )
+                    accepted["operation"] = operation
+                _output(accepted, args.json)
             elif command == "screenshot":
                 url = base + f"/v1/devices/{args.device}/screenshot?save=true"
                 body = {
@@ -624,6 +662,37 @@ def _doctor(args: argparse.Namespace) -> int:
     return 0 if report["python_supported"] else 1
 
 
+def _bundle(args: argparse.Namespace) -> int:
+    if args.bundle_command == "build":
+        manifest_path = pathlib.Path(args.manifest).expanduser().resolve()
+        signing_key_path = pathlib.Path(args.signing_key).expanduser().resolve()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        output = build_system_update_bundle(
+            pathlib.Path(args.output).expanduser().resolve(),
+            manifest,
+            pathlib.Path(args.component_root).expanduser().resolve(),
+            signing_private_key=signing_key_path.read_bytes(),
+            signing_key_password=(
+                pathlib.Path(args.signing_key_password_file)
+                .expanduser()
+                .resolve()
+                .read_bytes()
+                .rstrip(b"\r\n")
+                if args.signing_key_password_file
+                else None
+            ),
+        )
+        _output({"path": str(output), "bytes": output.stat().st_size}, args.json)
+        return 0
+    trust_key = pathlib.Path(args.trust_key).expanduser().resolve().read_bytes()
+    bundle = load_system_update_bundle(
+        pathlib.Path(args.bundle).expanduser().resolve(),
+        trusted_public_key=trust_key,
+    )
+    _output(bundle.as_dict(), args.json)
+    return 0
+
+
 def _add_common_ctl(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--profile")
     parser.add_argument("--url")
@@ -666,6 +735,10 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--tls", action="store_true", help="enable HTTPS, generating a certificate when needed")
     web_parser.add_argument("--no-tls", action="store_true", help="explicitly select the default HTTP transport")
     web_parser.add_argument("--demo", action="store_true", help="run a labeled multi-device virtual fleet without USB")
+    web_parser.add_argument(
+        "--system-update-trust-key",
+        help="PEM ECDSA P-256 public key trusted for signed .irisfw bundles",
+    )
 
     ctl = subparsers.add_parser("ctl", help="gateway-only developer and Agent CLI")
     _add_common_ctl(ctl)
@@ -723,6 +796,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ota.add_argument("--wait", action="store_true")
     ota.add_argument("--interval", type=float, default=0.5)
+    system_update = commands.add_parser("system-update")
+    system_update.add_argument("device")
+    system_update.add_argument("bundle")
+    system_update.add_argument("--wait", action="store_true")
+    system_update.add_argument("--interval", type=float, default=0.5)
     firmware_add = commands.add_parser("firmware-add")
     firmware_add.add_argument("image")
     firmware_add.add_argument("--elf")
@@ -756,6 +834,24 @@ def build_parser() -> argparse.ArgumentParser:
     mode = commands.add_parser("mode")
     mode.add_argument("value", nargs="?", choices=("develop", "observe"))
 
+    bundle = subparsers.add_parser(
+        "bundle", help="build or inspect signed system-update bundles"
+    )
+    bundle.add_argument("--json", action="store_true")
+    bundle_commands = bundle.add_subparsers(dest="bundle_command", required=True)
+    bundle_build = bundle_commands.add_parser("build")
+    bundle_build.add_argument("manifest")
+    bundle_build.add_argument("--component-root", required=True)
+    bundle_build.add_argument("--signing-key", required=True)
+    bundle_build.add_argument(
+        "--signing-key-password-file",
+        help="file containing the encrypted PEM password (never pass it as an argument)",
+    )
+    bundle_build.add_argument("--output", required=True)
+    bundle_inspect = bundle_commands.add_parser("inspect")
+    bundle_inspect.add_argument("bundle")
+    bundle_inspect.add_argument("--trust-key", required=True)
+
     doctor = subparsers.add_parser("doctor", help="cross-platform environment and USB diagnostics")
     doctor.add_argument("--json", action="store_true")
     return parser
@@ -770,12 +866,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "doctor":
             return _doctor(args)
+        if args.command == "bundle":
+            return _bundle(args)
         if args.command == "ctl":
             return asyncio.run(_ctl(args))
         asyncio.run(_web(args))
     except KeyboardInterrupt:
         return 130
-    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"esp_iris.py: error: {exc}", file=sys.stderr)
         return 2
     return 0

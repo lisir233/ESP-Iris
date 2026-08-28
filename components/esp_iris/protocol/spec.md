@@ -73,8 +73,9 @@ is 4096 bytes. A large object uses service-specific OPEN/DATA/CLOSE frames;
 it is never placed in one oversized envelope.
 
 Channels are `CONTROL=0`, `LOG=1`, `EVENT=2`, `SCREEN=3`, `IMAGE=4`,
-`AUDIO=5`, `OTA=6`, `CRASH=7`, and `FILE=8`. FILE is sent only when both peers
-recognize `CAP_FILE` (capability bit 13). `CAP_OTA_PROJECT_NAME_MATCH`
+`AUDIO=5`, `OTA=6`, `CRASH=7`, `FILE=8`, and `SYSTEM_UPDATE=9`. FILE is sent
+only when both peers recognize `CAP_FILE` (capability bit 13).
+`CAP_OTA_PROJECT_NAME_MATCH`
 (capability bit 14) advertises that the running firmware requires an OTA
 image's project name to match its own. An absent bit means that cross-project
 updates are allowed. Unknown types on a known channel produce a CONTROL ERROR
@@ -461,3 +462,94 @@ was caused by an OTA operation.
 compatibility set. Device C and PC Python codec tests consume the same file.
 Any intentional envelope change requires a new negotiated protocol version;
 existing v1 vectors are never rewritten to reinterpret an existing field.
+
+## System Update
+
+System Update is a recovery-only, authenticated multi-image transport. It is
+advertised with `CAP_SYSTEM_UPDATE` (capability bit 15) only after a product
+backend has registered. The generic ESP-Iris component never treats a target
+offset as permission to write Flash. The backend authenticates and parses the
+signed manifest, cross-checks every component descriptor, and implements the
+Flash policy.
+
+The read-only inventory provider is independent. A normal or recovery image
+advertises `CAP_SYSTEM_INVENTORY` (capability bit 16) only after that provider
+registers. This lets the Gateway verify actual Flash after booting the normal
+application without leaving an update writer reachable there.
+
+All update messages use channel 9. A 16-byte nonzero operation ID identifies
+one plan across every request.
+
+BEGIN (`0x01`) is:
+
+```text
+operation_id[16], manifest_size:u16, signature_size:u16,
+component_count:u8, flags:u8, reserved:u16, manifest_sha256[32],
+manifest[manifest_size], signature[signature_size]
+```
+
+The manifest and signature are bounded by Kconfig. ESP-Iris verifies the
+manifest SHA-256; the product backend verifies the signature and policy.
+BEGIN_RESPONSE (`0x02`) is `operation_id[16], job_id:u32, chunk_max:u16,
+component_count:u8, flags:u8`.
+
+COMPONENT_BEGIN (`0x03`) is:
+
+```text
+operation_id[16], component_id:u8, kind:u8, flags:u16,
+target_offset:u32, total_size:u32, sha256[32]
+```
+
+Defined kinds are bootloader `1`, partition table `2`, application `3`,
+recovery `4`, and product data `5`. A backend may reject any kind, including
+recovery self-update. COMPONENT_BEGIN_RESPONSE (`0x04`) returns
+`operation_id[16], component_id:u8, kind:u8, chunk_max:u16, total_size:u32`.
+
+DATA (`0x05`) is `operation_id[16], component_id:u8, reserved:u8,
+reserved:u16, offset:u32, bytes[]`. Offsets are strictly sequential. Each
+accepted chunk is hashed before it reaches the backend. DATA_RESPONSE (`0x06`)
+is `operation_id[16], component_id:u8, reserved:u8, progress_permille:u16,
+committed_offset:u32`.
+
+COMPONENT_END (`0x07`) is `operation_id[16], component_id:u8, reserved[3]`.
+It succeeds only after the exact byte count, streamed SHA-256, and backend
+readback validation all agree. COMPONENT_END_RESPONSE (`0x08`) is
+`operation_id[16], component_id:u8, completed_count:u8, reserved:u16,
+result:i32`.
+
+COMMIT (`0x09`) contains only the operation ID. The backend should retain
+bootloader and partition-table bytes in internal RAM until this point, write
+and read back the bootloader, prepare fixed-address boot selection metadata,
+and replace the partition table last. COMMIT_RESPONSE (`0x0a`) is
+`operation_id[16], job_id:u32, result:i32`. A successful backend must keep the
+link alive long enough to queue the response and may then schedule a restart.
+
+CANCEL (`0x0b`) aborts an uncommitted operation. STATUS (`0x0c`) has an empty
+payload and STATUS_RESPONSE (`0x0d`) is:
+
+```text
+operation_id[16], job_id:u32, phase:u8, component_count:u8,
+completed_count:u8, active_component_id:u8, received:u32, total:u32,
+result:i32
+```
+
+Disconnect aborts a prepared or receiving operation. A partially written
+future application is not selected; sensitive components must not have been
+written before COMMIT. Response timeouts can be reconciled through STATUS.
+
+INVENTORY (`0x0e`) has an empty payload. INVENTORY_RESPONSE (`0x0f`) is:
+
+```text
+flags:u32, layout_version:u32, bootloader_sha256[32],
+partition_table_sha256[32], last_operation_id[16], last_result:i32
+```
+
+Flag bits 0, 1, and 2 mark the respective bootloader hash, partition-table
+hash, and last-operation fields as valid. Hashes must be calculated from the
+current Flash contents, not copied from sysmeta. Bootloader and partition-table
+hashes cover exact product-defined protected ranges including erased-byte
+(`0xff`) padding; the bundle builder uses the same ranges. For the standard
+layout this is the bootloader start through the byte before the partition
+table, plus the complete 4 KiB partition-table sector. The Gateway checks the
+source partition-table hash before BEGIN and verifies target inventory,
+operation ID, application identity, and product health after reboot.

@@ -41,6 +41,11 @@ from .openapi_contract import build_openapi
 from .operations import OperationCancelled, OperationManager, OperationOutcomeUnknown
 from .security import Actor, AuthManager
 from .store import GatewayStore
+from .system_update import (
+    SystemUpdateBundle,
+    load_system_update_bundle,
+)
+from .system_update_workflow import run_system_update
 
 LOG_PATTERN = re.compile(r"^(?P<level>[EWIDV])\s+\((?P<stamp>\d+)\)\s+(?P<tag>[^:]+):\s?(?P<message>.*)$")
 CONSOLE_METHOD_NAME = "console.execute"
@@ -105,12 +110,14 @@ class GatewayService:
         demo: bool = False,
         require_local_auth: bool = False,
         frontend_dist: pathlib.Path | None = None,
+        system_update_trust_key: bytes | None = None,
     ) -> None:
         self.store = store
         self.instance_id = instance_id
         self.demo = demo
         self.require_local_auth = require_local_auth
         self.frontend_dist = frontend_dist
+        self.system_update_trust_key = system_update_trust_key
         self.auth = AuthManager(store)
         self.hub: GatewayHub | None = None
         self.metrics = MetricsRegistry()
@@ -479,6 +486,23 @@ class GatewayService:
             if queue is not None:
                 self.device_hub.unsubscribe(device_id, queue)
 
+    async def closed_loop_system_update(
+        self,
+        device_id: str,
+        bundle: SystemUpdateBundle,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        return await run_system_update(
+            self.device_hub,
+            self.operations,
+            self.preserve_coredump,
+            _validate_ota_identity,
+            device_id,
+            bundle,
+            operation_id,
+            validation_mode=DEFAULT_OTA_VALIDATION_MODE,
+        )
+
     async def closed_loop_restart(
         self, device_id: str, delay_ms: int, operation_id: str
     ) -> dict[str, Any]:
@@ -593,6 +617,9 @@ def create_app(service: GatewayService) -> web.Application:
                 "local_authentication_required": service.require_local_auth,
                 "database_schema_version": service.store.schema_version,
                 "ready": service.hub is not None,
+                "system_update_trust_configured": (
+                    service.system_update_trust_key is not None
+                ),
                 "time_ns": time.time_ns(),
             }
         )
@@ -1231,6 +1258,52 @@ def create_app(service: GatewayService) -> web.Application:
             status=202,
         )
 
+    async def system_update(request: web.Request) -> web.Response:
+        blocked = service.require_develop()
+        if blocked:
+            return blocked
+        if service.system_update_trust_key is None:
+            raise RuntimeError(
+                "Gateway has no configured system-update trust key"
+            )
+        if request.content_type not in {
+            "application/zip",
+            "application/octet-stream",
+            "application/vnd.esp-iris.system-update+zip",
+        }:
+            raise ValueError("system update requires a signed .irisfw archive")
+        device_id = service.resolve_device(request.match_info["device_id"])
+        archive = await request.read()
+        bundle = load_system_update_bundle(
+            archive, trusted_public_key=service.system_update_trust_key
+        )
+        artifact_path = service.store.save_artifact(
+            device_id, "system-update", archive, "irisfw"
+        )
+        operation_id = request.headers.get("X-Operation-ID") or str(uuid.uuid4())
+        operation, created = await service.operations.submit(
+            device_id,
+            _actor(request),
+            "firmware.system_update",
+            {
+                "bundle": bundle.as_dict(),
+                "artifact_path": str(artifact_path),
+            },
+            lambda: service.closed_loop_system_update(
+                device_id, bundle, operation_id
+            ),
+            operation_id=operation_id,
+        )
+        return web.json_response(
+            {
+                "operation": operation,
+                "accepted": created,
+                "status_url": f"/v1/operations/{operation_id}",
+                "bundle": bundle.as_dict(),
+            },
+            status=202,
+        )
+
     async def crash_report(request: web.Request) -> web.Response:
         blocked = service.require_develop()
         if blocked:
@@ -1344,6 +1417,9 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_post("/v1/devices/{device_id}/input", input_event)
     app.router.add_post("/v1/devices/{device_id}/audio", audio_upload)
     app.router.add_post("/v1/devices/{device_id}/ota", ota)
+    app.router.add_post(
+        "/v1/devices/{device_id}/system-update", system_update
+    )
     app.router.add_get("/v1/devices/{device_id}/crashes", crash_report)
     app.router.add_get("/v1/devices/{device_id}/crashes/core-dump", core_dump)
     app.router.add_get("/v1/auth/tokens", tokens)

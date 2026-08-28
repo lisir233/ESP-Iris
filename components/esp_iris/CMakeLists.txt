@@ -9,6 +9,8 @@ if(CONFIG_ESP_IRIS_ENABLE)
         "src/esp_iris_platform.c"
         "src/esp_iris_services.c"
         "src/esp_iris_state.c"
+        "src/esp_iris_system_inventory.c"
+        "src/esp_iris_system_update.c"
         "src/esp_iris_transport.c"
     )
     if(CONFIG_ESP_IRIS_TRANSPORT_USB)

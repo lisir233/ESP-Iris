@@ -29,6 +29,31 @@ React Workbench / source CLI
 | Device services | RPC/jobs, media, authentication and OTA mechanics | Product partition policy |
 | Product adapter | Acceptance, recovery metadata and product RPCs | Gateway/HTTP behavior |
 
+## System image mutation boundary
+
+System Inventory and System Update are deliberately separate registrations.
+Normal firmware may register only the read-only inventory provider, which
+reports hashes calculated from current protected Flash ranges and the last
+fixed-address sysmeta result. Recovery firmware registers the same provider
+plus the write backend. ESP-Iris advertises capabilities from those runtime
+registrations rather than merely from Kconfig.
+
+The generic device service owns bounded framing, sequential offsets, streaming
+SHA-256, cancellation, status publication and retained-job integration. It
+does not parse a target offset as write authority and contains no raw-Flash
+endpoint. The product backend is the only Flash-policy boundary: it pins the
+release key, authenticates the exact manifest bytes, validates image formats
+and protected ranges, cross-checks each wire descriptor, stages sensitive
+images in internal RAM and implements the accepted commit/brick policy.
+
+The PC-side release builder creates an authenticated `.irisfw` with a canonical
+manifest and fixed-range `0xff` padding. The Gateway holds only the public key,
+preserves crash evidence, checks the authorized source layout, enters retained
+recovery, streams the signed plan, and accepts success only after a new healthy
+normal boot reports matching actual inventory, operation ID and application
+identity. Workbench and CLI are clients of that same `/v1` operation; neither
+has a device-protocol or Flash bypass.
+
 The Gateway application depends on `GatewayHub`, not concrete `IrisHub` or
 `DemoHub` internals. Device lifecycle/session transitions and Gateway
 operation/session transitions are explicit state machines. Terminal operation

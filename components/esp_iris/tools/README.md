@@ -214,6 +214,7 @@ python "$IRIS" ctl restart DEVICE_ID
 python "$IRIS" ctl firmware-add build/app.bin
 python "$IRIS" ctl ota DEVICE_ID build/app.bin
 python "$IRIS" ctl ota DEVICE_ID build/app.bin --validation-mode version
+python "$IRIS" ctl system-update DEVICE_ID release.irisfw --wait
 python "$IRIS" ctl ota-status OPERATION_ID
 python "$IRIS" ctl ota-watch OPERATION_ID
 python "$IRIS" ctl mode observe
@@ -226,6 +227,40 @@ with the running device's reported firmware SHA-256. Use
 compare the project version string instead. The Workbench OTA dialog and the
 REST request field `validation_mode` expose the same choice; supported values
 are `elf_sha256` and `version`.
+
+System Update requires the Gateway to start with a pinned ECDSA P-256 trust
+key. The private signing key is used only by the offline bundle command and is
+never passed to the Gateway or device:
+
+```bash
+python "$IRIS" bundle build manifest-template.json \
+  --component-root build/system-update \
+  --signing-key /private/release-signing-key.pem \
+  --signing-key-password-file /private/release-signing-key.password \
+  --output release.irisfw
+python "$IRIS" bundle inspect release.irisfw \
+  --trust-key release-public-key.pem
+python "$IRIS" web --system-update-trust-key release-public-key.pem
+```
+
+The Gateway archives the exact `.irisfw`, preserves a valid coredump before
+recovery entry, verifies the source layout through device inventory, streams
+the components in signed-manifest order, and accepts success only after a new
+healthy boot reports matching application, bootloader, partition-table and
+operation identities. System Update is deliberately unavailable when no trust
+key is configured.
+
+Encrypted signing keys are supported through the optional password-file flag;
+the password is never accepted as a command-line value. Keep the private key
+and its password outside the Gateway host in the release-signing environment.
+
+The bundle builder pads the partition-table image to its full 4 KiB sector.
+When a bootloader is present it must be accompanied by the target partition
+table, and the builder pads it with `0xff` through the byte before that table.
+The product inventory provider must hash those same logical protected ranges;
+on products with Flash encryption it is responsible for choosing the matching
+plaintext/readback semantics. Normal firmware exposes only read-only inventory,
+while recovery additionally registers the authenticated write backend.
 
 Use `ctl --json` for stable machine-readable output. A remote Gateway or local
 Gateway started with `--require-local-auth` requires a login or named Agent

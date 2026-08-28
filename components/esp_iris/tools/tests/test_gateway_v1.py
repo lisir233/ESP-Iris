@@ -2,16 +2,20 @@ import asyncio
 import hashlib
 import json
 import struct
+import uuid
 from unittest.mock import Mock
 
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from iris_gateway.cli import _client_ssl, _listen_is_loopback, build_parser
 from iris_gateway.demo import DemoHub
 from iris_gateway.gateway import GatewayService, create_app
 from iris_gateway.security import Actor
 from iris_gateway.store import GatewayStore
+from iris_gateway.system_update import SYSTEM_UPDATE_SCHEMA, build_system_update_bundle
 
 
 def _firmware_bundle() -> tuple[bytes, bytes, bytes]:
@@ -79,6 +83,94 @@ def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) 
                 },
             )
             assert invalid_validation.status == 400
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
+def test_system_update_requires_trust_and_closes_actual_inventory_loop(tmp_path) -> None:
+    async def scenario() -> None:
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        private_pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        public_pem = private_key.public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        components = tmp_path / "components"
+        components.mkdir()
+        (components / "partition-table.bin").write_bytes(b"table-v2")
+        manifest = {
+            "schema": SYSTEM_UPDATE_SCHEMA,
+            "signature": {
+                "algorithm": "ecdsa-p256-sha256",
+                "key_id": "gateway-test",
+            },
+            "target": {"chip_id": 0x20, "flash_size": 16 * 1024 * 1024},
+            "source_layout_sha256": ["00" * 32],
+            "target_layout_sha256": "00" * 32,
+            "components": [
+                {
+                    "id": 1,
+                    "kind": "partition_table",
+                    "target_offset": 0x8000,
+                    "file": "partition-table.bin",
+                }
+            ],
+        }
+        archive_path = build_system_update_bundle(
+            tmp_path / "release.irisfw",
+            manifest,
+            components,
+            signing_private_key=private_pem,
+        )
+        store = GatewayStore(tmp_path / "state")
+        service = GatewayService(
+            store,
+            instance_id="test",
+            demo=True,
+            system_update_trust_key=public_pem,
+        )
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            operation_id = str(uuid.uuid4())
+            accepted = await client.post(
+                "/v1/devices/demo-a1b2c3d4/system-update",
+                data=archive_path.read_bytes(),
+                headers={
+                    "Content-Type": "application/vnd.esp-iris.system-update+zip",
+                    "X-Operation-ID": operation_id,
+                },
+            )
+            assert accepted.status == 202
+            operation = None
+            for _ in range(200):
+                response = await client.get(f"/v1/operations/{operation_id}")
+                operation = await response.json()
+                if operation["status"] in {"succeeded", "failed"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert operation is not None
+            assert operation["status"] == "succeeded", operation
+            assert operation["result"]["validated"] is True
+            assert (
+                operation["result"]["target_inventory"][
+                    "partition_table_sha256"
+                ]
+                == operation["result"]["target_layout_sha256"]
+            )
+            saved = list((store.artifacts_dir / "demo-a1b2c3d4").glob("*.irisfw"))
+            assert len(saved) == 1
         finally:
             await client.close()
             await hub.close()

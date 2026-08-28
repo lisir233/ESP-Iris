@@ -161,6 +161,18 @@ uint64_t iris_files_capabilities(void);
 uint32_t iris_files_allocated_bytes(void);
 uint32_t iris_files_static_bytes(void);
 
+void iris_system_update_session_end(void);
+bool iris_system_inventory_handle_frame(iris_runtime_t *runtime,
+                                        const iris_decoded_frame_t *frame);
+uint64_t iris_system_inventory_capabilities(void);
+uint32_t iris_system_inventory_static_bytes(void);
+bool iris_system_inventory_registered(void);
+bool iris_system_update_handle_frame(iris_runtime_t *runtime,
+                                     const iris_decoded_frame_t *frame);
+uint64_t iris_system_update_capabilities(void);
+uint32_t iris_system_update_static_bytes(void);
+bool iris_system_update_backend_registered(void);
+
 esp_err_t iris_queue_frame(iris_runtime_t *runtime, uint8_t channel,
                            uint8_t type, uint16_t flags,
                            uint32_t request_id, uint32_t stream_id,

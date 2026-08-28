@@ -11,6 +11,7 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         "/v1/devices/{device_id}/restart": "Restart device",
         "/v1/devices/{device_id}/factory-recovery": "Enter factory recovery",
         "/v1/devices/{device_id}/ota": "Validated OTA",
+        "/v1/devices/{device_id}/system-update": "Authenticated system update",
         "/v1/devices/{device_id}/input": "Pointer or touch gesture",
         "/v1/devices/{device_id}/console": "Submit one console command line",
         "/v1/devices/{device_id}/screenshot": "Capture screenshot",
@@ -85,6 +86,14 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
                         },
                     },
                 }
+            }
+        },
+    }
+    paths["/v1/devices/{device_id}/system-update"]["post"]["requestBody"] = {
+        "required": True,
+        "content": {
+            "application/vnd.esp-iris.system-update+zip": {
+                "schema": {"type": "string", "format": "binary"}
             }
         },
     }

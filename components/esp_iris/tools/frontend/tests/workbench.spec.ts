@@ -2,7 +2,20 @@ import { expect, test } from "@playwright/test";
 
 test("desktop workbench keeps the device workflow focused", async ({ page }) => {
   const errors: string[] = [];
+  let systemUpdateUploaded = false;
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.route("**/v1/health", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, system_update_trust_configured: true } });
+  });
+  await page.route("**/v1/devices/*/system-update", async (route) => {
+    systemUpdateUploaded = route.request().postDataBuffer()?.equals(Buffer.from("signed-irisfw-test")) ?? false;
+    await route.fulfill({
+      status: 202,
+      json: { operation: { operation_id: "system-update-ui-test" }, accepted: true },
+    });
+  });
   await page.goto("/");
   await expect(page).toHaveTitle("ESP-Iris 开发者工作台");
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe("light");
@@ -55,6 +68,26 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   await page.screenshot({ path: process.env.ESP_IRIS_OTA_MOBILE_SCREENSHOT || "/tmp/esp-iris-ota-validation-mobile.png" });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByLabel("关闭").click();
+
+  await page.getByRole("button", { name: "系统更新包", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "执行系统更新" })).toBeVisible();
+  const confirmSystemUpdate = page.getByRole("button", { name: "确认执行" });
+  await expect(confirmSystemUpdate).toBeDisabled();
+  await page.getByLabel("选择系统更新包").setInputFiles({
+    name: "release.irisfw",
+    mimeType: "application/vnd.esp-iris.system-update+zip",
+    buffer: Buffer.from("signed-irisfw-test"),
+  });
+  await expect(page.getByText("release.irisfw", { exact: true })).toBeVisible();
+  await expect(confirmSystemUpdate).toBeEnabled();
+  await page.screenshot({ path: process.env.ESP_IRIS_SYSTEM_UPDATE_SCREENSHOT || "/tmp/esp-iris-system-update.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(confirmSystemUpdate).toBeVisible();
+  await page.screenshot({ path: process.env.ESP_IRIS_SYSTEM_UPDATE_MOBILE_SCREENSHOT || "/tmp/esp-iris-system-update-mobile.png" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await confirmSystemUpdate.click();
+  await expect(page.getByText("系统更新已受理", { exact: false })).toBeVisible();
+  expect(systemUpdateUploaded).toBe(true);
 
   await page.getByRole("button", { name: "记录", exact: true }).click();
   await expect(page.getByRole("tab", { name: "设备操作" })).toBeVisible();

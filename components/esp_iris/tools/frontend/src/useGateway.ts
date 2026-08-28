@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { appendGatewayEvent, nextReconnectDelay } from "./eventState";
-import type { Audit, Device, DeviceStatus, GatewayEvent, Operation } from "./types";
+import type { Audit, Device, DeviceStatus, GatewayEvent, GatewayHealth, Operation } from "./types";
 
 type AuthState = { required: boolean; configured: boolean; authenticated: boolean; actor?: { type: string; name: string } };
 type ModeState = { mode: "develop" | "observe"; transitioning: boolean };
@@ -16,6 +16,7 @@ export function useGateway() {
   const [audits, setAudits] = useState<Audit[]>([]);
   const [events, setEvents] = useState<GatewayEvent[]>([]);
   const [demo, setDemo] = useState(false);
+  const [health, setHealth] = useState<GatewayHealth>({ system_update_trust_configured: false });
   const [error, setError] = useState<string>("");
   const cursor = useRef(0);
 
@@ -27,17 +28,19 @@ export function useGateway() {
 
   const refresh = useCallback(async () => {
     try {
-      const [modeData, deviceData, operationData, auditData] = await Promise.all([
+      const [modeData, deviceData, operationData, auditData, healthData] = await Promise.all([
         api<ModeState>("/v1/mode"),
         api<{ devices: Device[]; demo: boolean }>("/v1/devices"),
         api<{ operations: Operation[] }>("/v1/operations"),
         api<{ audits: Audit[] }>("/v1/system-audit"),
+        api<GatewayHealth>("/v1/health"),
       ]);
       setModeState(modeData);
       setDevices(deviceData.devices);
       setDemo(deviceData.demo);
       setOperations(operationData.operations);
       setAudits(auditData.audits);
+      setHealth(healthData);
       setSelectedId((current) => deviceData.devices.some((device) => device.device_id === current) ? current : deviceData.devices[0]?.device_id || "");
       setError("");
     } catch (reason) {
@@ -137,6 +140,7 @@ export function useGateway() {
     audits,
     events,
     demo,
+    health,
     error,
     refresh,
     refreshStatus,

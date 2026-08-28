@@ -157,6 +157,8 @@ USB/TCP 选择、认证、TLS、CLI、数据保留和开发命令参见
 | 崩溃证据 | 存在时只读提供 | 使用 `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` 分块 |
 | TCP 配对 | 默认关闭 | 一个 NVS token 和 challenge-HMAC 状态 |
 | OTA writer | 可配置；默认允许跨项目更新 | 使用 `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES` 分块；`CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` 可要求与当前项目名匹配 |
+| System Inventory | 产品注册只读 provider 后启用 | 返回系统保护区实际哈希和上一笔提交结果，不含任何写回调 |
+| System Update | recovery 注册产品 backend 后才启用 | 签名 manifest、组件/manifest/签名/分块上限，且不提供通用 raw-Flash API |
 | 文件服务 | 应用注册逻辑卷后才启用 | 一个文件任务、一个流和每块 `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` |
 
 媒体 channel 使用 credit 和 latest-chunk 策略，慢速主机不会在设备侧产生无界队列。
@@ -198,6 +200,11 @@ offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换�
   应开启 Gateway TLS。
 - Wi-Fi 密码、配对 token、TLS 私钥和 Agent Token 必须放在被忽略的本地配置
   或私有文件中。
+- System Update 只应由保留的 factory recovery 同时注册只读 inventory provider
+  和写 backend；正常固件仅注册 inventory provider，用于重启后的闭环校验。
+  Gateway 和设备分别验证签名 manifest；产品 backend 必须固定信任公钥、保护
+  系统固定区并逐项核对组件。Inventory 必须对当前 Flash 的完整保护区计算哈希，
+  包含擦除态 `0xff` 填充，不能直接回传 sysmeta 中保存的期望值。
 
 ## 示例
 
@@ -219,6 +226,8 @@ offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换�
 ## 文档导航
 
 - [公共 C API](include/esp_iris.h)
+- [System Inventory provider API](include/esp_iris_system_inventory.h)
+- [System Update backend API](include/esp_iris_system_update.h)
 - [协议常量](include/esp_iris_protocol.h)
 - [Wire protocol v1](protocol/spec.md)
 - [Golden vectors](protocol/golden_vectors.json)

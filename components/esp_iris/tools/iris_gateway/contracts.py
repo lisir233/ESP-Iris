@@ -12,6 +12,8 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
+from .system_update import SystemUpdateBundle
+
 ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
@@ -125,6 +127,17 @@ class GatewayHub(Protocol):
     ) -> dict[str, Any]: ...
 
     async def ota_status(self, device_id: str) -> dict[str, Any]: ...
+
+    async def system_update(
+        self,
+        device_id: str,
+        bundle: SystemUpdateBundle,
+        *,
+        operation_id: bytes,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def system_update_inventory(self, device_id: str) -> dict[str, Any]: ...
 
     async def restart(self, device_id: str, delay_ms: int = 250) -> int: ...
 

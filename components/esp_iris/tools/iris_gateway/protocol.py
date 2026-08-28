@@ -29,6 +29,7 @@ class Channel(enum.IntEnum):
     OTA = 6
     CRASH = 7
     FILE = 8
+    SYSTEM_UPDATE = 9
 
 
 class Transport(enum.IntEnum):
@@ -53,6 +54,8 @@ class Capability(enum.IntFlag):
     MIRROR = 1 << 12
     FILE = 1 << 13
     OTA_PROJECT_NAME_MATCH = 1 << 14
+    SYSTEM_UPDATE = 1 << 15
+    SYSTEM_INVENTORY = 1 << 16
 
 
 class ControlType(enum.IntEnum):
@@ -114,6 +117,24 @@ class OtaType(enum.IntEnum):
     END_RESPONSE = 0x06
     CANCEL = 0x07
     STATUS = 0x08
+
+
+class SystemUpdateType(enum.IntEnum):
+    BEGIN = 0x01
+    BEGIN_RESPONSE = 0x02
+    COMPONENT_BEGIN = 0x03
+    COMPONENT_BEGIN_RESPONSE = 0x04
+    DATA = 0x05
+    DATA_RESPONSE = 0x06
+    COMPONENT_END = 0x07
+    COMPONENT_END_RESPONSE = 0x08
+    COMMIT = 0x09
+    COMMIT_RESPONSE = 0x0A
+    CANCEL = 0x0B
+    STATUS = 0x0C
+    STATUS_RESPONSE = 0x0D
+    INVENTORY = 0x0E
+    INVENTORY_RESPONSE = 0x0F
 
 
 class FileType(enum.IntEnum):
@@ -286,7 +307,7 @@ def encode_frame(frame: Frame) -> bytes:
     if len(payload) > MAX_PAYLOAD:
         raise ProtocolError(f"payload exceeds {MAX_PAYLOAD} bytes")
     channel = _wire_uint("channel", frame.channel, 8)
-    if channel > int(Channel.FILE):
+    if channel > int(Channel.SYSTEM_UPDATE):
         raise ProtocolError("invalid channel")
     header = HEADER.pack(
         MAGIC,
@@ -333,7 +354,7 @@ def decode_frame(encoded: bytes) -> Frame:
     ) = fields
     if magic != MAGIC or version != VERSION or header_size != HEADER_SIZE:
         raise ProtocolError("unsupported frame header")
-    if reserved != 0 or channel > int(Channel.FILE):
+    if reserved != 0 or channel > int(Channel.SYSTEM_UPDATE):
         raise ProtocolError("invalid reserved field or channel")
     if payload_size > MAX_PAYLOAD or len(plain) != HEADER_SIZE + payload_size + 4:
         raise ProtocolError("payload size mismatch")

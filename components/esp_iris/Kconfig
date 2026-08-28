@@ -211,6 +211,54 @@ config ESP_IRIS_OTA_CHUNK_BYTES
     range 256 2048
     default 1024
 
+config ESP_IRIS_SYSTEM_INVENTORY
+    bool "Expose read-only system Flash inventory"
+    default n
+    help
+        Enables a small, read-only provider interface for reporting hashes of
+        the actually installed bootloader and partition table plus the last
+        committed system-update result. This can be enabled in normal and
+        recovery firmware without exposing a Flash writer.
+
+config ESP_IRIS_SYSTEM_UPDATE
+    bool "Enable authenticated multi-image system update transport"
+    select ESP_IRIS_SYSTEM_INVENTORY
+    default n
+    help
+        Enables the protocol and product backend interface used to install a
+        signed update plan containing application, bootloader, partition-table
+        or product-defined data components. ESP-Iris itself never grants raw
+        Flash access: a registered product backend must authenticate the
+        manifest, authorize every descriptor and implement commit policy.
+
+        Enable this only in a retained recovery image. Normal applications
+        may enable ESP_IRIS_SYSTEM_INVENTORY for post-reboot verification and
+        should otherwise expose only the enter-recovery control path.
+
+config ESP_IRIS_SYSTEM_UPDATE_CHUNK_BYTES
+    int "Maximum system-update data bytes per request"
+    depends on ESP_IRIS_SYSTEM_UPDATE
+    range 256 2048
+    default 1024
+
+config ESP_IRIS_SYSTEM_UPDATE_MANIFEST_BYTES
+    int "Maximum authenticated system-update manifest size"
+    depends on ESP_IRIS_SYSTEM_UPDATE
+    range 256 3072
+    default 2048
+
+config ESP_IRIS_SYSTEM_UPDATE_SIGNATURE_BYTES
+    int "Maximum system-update manifest signature size"
+    depends on ESP_IRIS_SYSTEM_UPDATE
+    range 64 512
+    default 256
+
+config ESP_IRIS_SYSTEM_UPDATE_MAX_COMPONENTS
+    int "Maximum components in one system update"
+    depends on ESP_IRIS_SYSTEM_UPDATE
+    range 1 8
+    default 4
+
 config ESP_IRIS_TCP_PAIRING
     bool "Require challenge-HMAC pairing on raw TCP"
     depends on ESP_IRIS_TRANSPORT_TCP

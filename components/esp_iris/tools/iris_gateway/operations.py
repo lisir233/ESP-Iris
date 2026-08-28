@@ -100,10 +100,13 @@ class OperationManager:
     async def stage(self, operation_id: str, status: str) -> dict[str, Any]:
         if status not in {
             "running",
+            "preserving_evidence",
             "entering_recovery",
             "waiting_recovery",
+            "validating_plan",
             "transferring",
             "verifying",
+            "committing",
             "waiting_device",
             "reconnecting",
         }:

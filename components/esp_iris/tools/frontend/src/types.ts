@@ -28,6 +28,10 @@ export type DeviceStatus = Device & {
   queue?: { running: string[]; queued: string[] };
 };
 
+export type GatewayHealth = {
+  system_update_trust_configured: boolean;
+};
+
 export type Operation = {
   operation_id: string;
   device_id: string;

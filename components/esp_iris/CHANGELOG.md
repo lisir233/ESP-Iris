@@ -4,6 +4,11 @@ All notable ESP-Iris component changes are documented in this file.
 
 ## Unreleased
 
+- Add an opt-in, recovery-only System Update service with signed manifest
+  transport, bounded multi-component streaming, product-owned Flash policy,
+  an independently registrable read-only Flash inventory, Gateway closed-loop
+  validation, fixed-range image padding, and signed `.irisfw` bundle tooling.
+
 - Allow TCP, application USB CDC0, and USB Serial/JTAG to wait concurrently,
   with bounded HELLO_ACK arbitration and one active transport owner.
 - Add a standalone FATFS-backed file-transfer example covering streamed

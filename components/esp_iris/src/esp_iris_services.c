@@ -777,6 +777,7 @@ void iris_services_session_begin(iris_runtime_t *runtime)
 void iris_services_session_end(iris_runtime_t *runtime)
 {
     iris_files_session_end(runtime->session_id);
+    iris_system_update_session_end();
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
         return;
@@ -811,7 +812,9 @@ uint64_t iris_services_capabilities(void)
     uint64_t result = ESP_IRIS_CAP_RPC | ESP_IRIS_CAP_JOBS |
                       ESP_IRIS_CAP_SCREEN | ESP_IRIS_CAP_IMAGE |
                       ESP_IRIS_CAP_AUDIO | ESP_IRIS_CAP_MIRROR |
-                      iris_files_capabilities();
+                      iris_files_capabilities() |
+                      iris_system_inventory_capabilities() |
+                      iris_system_update_capabilities();
 #if CONFIG_ESP_IRIS_OTA
     if (esp_ota_get_next_update_partition(NULL) != NULL) {
         result |= ESP_IRIS_CAP_OTA;
@@ -1719,6 +1722,8 @@ bool iris_services_handle_frame(iris_runtime_t *runtime,
                handle_restart(runtime, frame);
     }
     return iris_files_handle_frame(runtime, frame) ||
+           iris_system_inventory_handle_frame(runtime, frame) ||
+           iris_system_update_handle_frame(runtime, frame) ||
            handle_media(runtime, frame) || handle_ota(runtime, frame);
 }
 
@@ -1855,5 +1860,6 @@ uint32_t iris_services_allocated_bytes(void)
 uint32_t iris_services_static_bytes(void)
 {
     return sizeof(s_services) + sizeof(s_services_lock) +
-        iris_files_static_bytes();
+        iris_files_static_bytes() + iris_system_inventory_static_bytes() +
+        iris_system_update_static_bytes();
 }

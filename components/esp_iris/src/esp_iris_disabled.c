@@ -1,4 +1,6 @@
 #include "esp_iris.h"
+#include "esp_iris_system_inventory.h"
+#include "esp_iris_system_update.h"
 
 #include <string.h>
 
@@ -167,5 +169,38 @@ esp_err_t esp_iris_format_device_id(char out[33])
         return ESP_ERR_INVALID_ARG;
     }
     out[0] = '\0';
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_system_update_register(
+    const esp_iris_system_update_backend_t *backend)
+{
+    (void)backend;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_system_inventory_register(
+    const esp_iris_system_inventory_provider_t *provider)
+{
+    (void)provider;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_system_inventory_unregister(void *user_ctx)
+{
+    (void)user_ctx;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_system_update_unregister(void *user_ctx)
+{
+    (void)user_ctx;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_system_update_get_status(
+    esp_iris_system_update_status_t *out_status)
+{
+    (void)out_status;
     return ESP_ERR_NOT_SUPPORTED;
 }

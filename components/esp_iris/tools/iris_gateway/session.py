@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from . import system_update_transport
 from .files import DeviceFiles
 from .link import Link
 from .protocol import (
@@ -35,6 +36,7 @@ from .protocol import (
     tlv_u64,
 )
 from .state_machine import SessionEvent, SessionState, session_transition
+from .system_update import SystemUpdateBundle
 
 EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -80,6 +82,8 @@ class DeviceInfo:
             12: "mirror",
             13: "files",
             14: "ota_project_name_match",
+            15: "system_update",
+            16: "system_inventory",
         }
         names = [name for bit, name in bits.items() if self.capabilities & (1 << bit)]
         names.append("restart")
@@ -884,6 +888,39 @@ class DeviceSession:
             "result": result,
             "partition": frame.payload[20:].decode("ascii", errors="replace"),
         }
+
+    @staticmethod
+    def _decode_system_update_status(payload: bytes) -> dict[str, Any]:
+        return system_update_transport.decode_system_update_status(payload)
+
+    async def system_update_status(self, *, timeout: float = 10.0) -> dict[str, Any]:
+        return await system_update_transport.system_update_status(
+            self._request, timeout=timeout
+        )
+
+    async def system_update_inventory(
+        self, *, timeout: float = 10.0
+    ) -> dict[str, Any]:
+        return await system_update_transport.system_update_inventory(
+            self.wait_ready, self._request, timeout=timeout
+        )
+
+    async def system_update(
+        self,
+        bundle: SystemUpdateBundle,
+        *,
+        operation_id: bytes | None = None,
+        timeout: float = 15.0,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        return await system_update_transport.perform_system_update(
+            self.wait_ready,
+            self._request,
+            bundle,
+            operation_id=operation_id,
+            timeout=timeout,
+            progress_callback=progress_callback,
+        )
 
     async def restart(self, delay_ms: int = 250) -> int:
         if not 100 <= delay_ms <= 60000:

@@ -12,10 +12,13 @@ class StateTransitionError(ValueError):
 class OperationState(enum.StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    PRESERVING_EVIDENCE = "preserving_evidence"
     ENTERING_RECOVERY = "entering_recovery"
     WAITING_RECOVERY = "waiting_recovery"
+    VALIDATING_PLAN = "validating_plan"
     TRANSFERRING = "transferring"
     VERIFYING = "verifying"
+    COMMITTING = "committing"
     WAITING_DEVICE = "waiting_device"
     RECONNECTING = "reconnecting"
     SUCCEEDED = "succeeded"

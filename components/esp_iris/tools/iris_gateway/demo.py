@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from .firmware import inspect_firmware_image
+from .system_update import SystemUpdateBundle, SystemUpdateComponentKind
 
 EventSink = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -102,7 +103,7 @@ class DemoHub:
                 f"{device_id}-{version}".encode()
             ).hexdigest(),
             "reset_reason": 1,
-            "capabilities": 0xFFFF,
+            "capabilities": 0x1FFFF,
             "capability_names": [
                 "rpc",
                 "jobs",
@@ -114,6 +115,8 @@ class DemoHub:
                 "input",
                 "crash",
                 "files",
+                "system_update",
+                "system_inventory",
             ],
             "auth_mode": 0,
             "max_payload": 262144,
@@ -647,6 +650,95 @@ class DemoHub:
             "active": False,
             "result": 0,
             "partition": "ota_0",
+            "demo": True,
+        }
+
+    async def system_update(
+        self,
+        device_id: str,
+        bundle: SystemUpdateBundle,
+        *,
+        operation_id: bytes,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        device = self.get(device_id)
+        total = sum(component.size for component in bundle.components)
+        received = 0
+        for index, component in enumerate(bundle.components):
+            received += component.size
+            if progress_callback is not None:
+                await progress_callback(
+                    {
+                        "stage": "transferring",
+                        "job_id": 2,
+                        "operation_id": operation_id.hex(),
+                        "component_id": component.id,
+                        "component_index": index,
+                        "component_count": len(bundle.components),
+                        "bytes_received": received,
+                        "bytes_total": total,
+                        "progress_permille": 50 + 850 * received // total,
+                    }
+                )
+            if component.kind is SystemUpdateComponentKind.APPLICATION:
+                firmware = inspect_firmware_image(component.data)
+                device["project_name"] = firmware.project_name
+                device["app_version"] = firmware.version
+                device["firmware_sha256"] = firmware.elf_sha256
+            if component.kind is SystemUpdateComponentKind.BOOTLOADER:
+                device["bootloader_sha256"] = component.sha256.hex()
+        device["partition_table_sha256"] = bundle.target_layout_sha256
+        device["last_system_update_operation_id"] = operation_id.hex()
+        device["boot_id"] += 1
+        device["session_id"] += 1
+        device["firmware_mode"] = "normal"
+        await self._emit(
+            {
+                "kind": "connection",
+                "connection_state": "rebooted",
+                "device_id": device_id,
+                "boot_id": device["boot_id"],
+                "session_id": device["session_id"],
+                "endpoint": device["endpoint"],
+                "host_receive_wall_ns": time.time_ns(),
+                "demo": True,
+            }
+        )
+        await self._emit(
+            {
+                "kind": "device_event",
+                "event_name": "healthy",
+                "device_id": device_id,
+                "boot_id": device["boot_id"],
+                "host_receive_wall_ns": time.time_ns(),
+                "demo": True,
+            }
+        )
+        return {
+            "operation_id": operation_id.hex(),
+            "job_id": 2,
+            "manifest_sha256": bundle.manifest_sha256.hex(),
+            "target_layout_sha256": bundle.target_layout_sha256,
+            "components": [item.as_dict() for item in bundle.components],
+            "bytes": total,
+            "restart_required": True,
+            "completion_evidence": "session_close",
+            "demo": True,
+        }
+
+    async def system_update_inventory(self, device_id: str) -> dict[str, Any]:
+        device = self.get(device_id)
+        return {
+            "flags": 0x7,
+            "layout_version": 1,
+            "bootloader_sha256": device.get("bootloader_sha256", "00" * 32),
+            "partition_table_sha256": device.get(
+                "partition_table_sha256", "00" * 32
+            ),
+            "last_operation_id": device.get(
+                "last_system_update_operation_id", "00" * 16
+            ),
+            "last_result": 0,
             "demo": True,
         }
 
