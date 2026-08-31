@@ -124,6 +124,14 @@ typedef struct {
     uint32_t capabilities;
 } esp_iris_file_volume_config_t;
 
+typedef struct {
+    /* Optional DNS-SD instance prefix. Defaults to "ESP-Iris". The Wi-Fi
+     * STA MAC suffix is always appended to keep instances unique. */
+    const char *instance_prefix;
+    /* Optional firmware role exposed in TXT metadata. Defaults to "normal". */
+    const char *mode;
+} esp_iris_mdns_config_t;
+
 /* Idempotent. Configuration comes exclusively from Kconfig and NVS. */
 esp_err_t esp_iris_start(void);
 esp_err_t esp_iris_stop(void);
@@ -148,6 +156,12 @@ esp_err_t esp_iris_platform_prepare_ota(uint32_t running_address,
 
 /* Writes a lowercase, NUL-terminated 32-character device ID. */
 esp_err_t esp_iris_format_device_id(char out[33]);
+
+/* Register the TCP endpoint as _esp-iris._tcp after the product has called
+ * mdns_init() and configured its hostname. ESP-Iris owns only this service:
+ * it never initializes, frees, or changes the product's mDNS hostname. */
+esp_err_t esp_iris_mdns_register(const esp_iris_mdns_config_t *config);
+esp_err_t esp_iris_mdns_unregister(void);
 
 /* M6: bounded binary RPC and long-running jobs. Registration allocates only
  * the small handler table and is intended to run during product startup. */

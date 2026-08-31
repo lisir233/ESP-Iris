@@ -605,6 +605,8 @@ def test_local_auth_cli_is_opt_in() -> None:
     assert default_web.tls is False
     assert default_web.no_tls is False
     assert default_web.discover_usb_serial_jtag is False
+    assert default_web.discover_mdns is True
+    assert parser.parse_args(["web", "--no-discover-mdns"]).discover_mdns is False
     usj_web = parser.parse_args(
         [
             "web",

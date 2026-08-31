@@ -11,6 +11,7 @@ from typing import Any
 
 from .discovery import discover_iris_usb_devices
 from .link import EndpointLock, Link, SerialLink, TcpLink
+from .mdns_discovery import IrisMdnsDevice, IrisMdnsDiscovery
 from .protocol import ProtocolError, Transport
 from .session import DeviceSession
 from .system_update import SystemUpdateBundle
@@ -119,6 +120,9 @@ class IrisHub:
         self._locks: dict[str, EndpointLock] = {}
         self._endpoint_states: dict[str, dict[str, Any]] = {}
         self._discovery_task: asyncio.Task[None] | None = None
+        self._mdns_discovery: IrisMdnsDiscovery | None = None
+        self._mdns_services: dict[str, str] = {}
+        self._mdns_devices: dict[str, str] = {}
         self._closing = False
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = (
             collections.defaultdict(set)
@@ -135,14 +139,21 @@ class IrisHub:
         self._mirror_states: dict[tuple[str, int], dict[str, Any]] = {}
 
     async def add_tcp(
-        self, host: str, port: int = 19772, pairing_token: str | None = None
+        self,
+        host: str,
+        port: int = 19772,
+        pairing_token: str | None = None,
+        *,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         endpoint = f"tcp:{host}:{port}"
 
         async def opener() -> Link:
             return await TcpLink.open(host, port)
 
-        self._add_supervisor(endpoint, opener, pairing_token=pairing_token)
+        self._add_supervisor(
+            endpoint, opener, pairing_token=pairing_token, metadata=metadata
+        )
 
     async def add_usb(
         self,
@@ -181,6 +192,7 @@ class IrisHub:
         opener: LinkOpener,
         *,
         pairing_token: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         if self._closing:
             raise RuntimeError("ESP-Iris Hub is closing")
@@ -200,6 +212,7 @@ class IrisHub:
             "error": None,
             "device_id": None,
             "updated_monotonic_ns": time.monotonic_ns(),
+            **(metadata or {}),
         }
         self._endpoint_tasks[endpoint] = asyncio.create_task(
             self._supervise(endpoint, opener, pairing_token),
@@ -244,6 +257,84 @@ class IrisHub:
         self._discovery_task = asyncio.create_task(
             discover_loop(), name="iris-usb-discovery"
         )
+
+    async def start_mdns_discovery(
+        self, pairing_token: str | None = None
+    ) -> None:
+        if self._mdns_discovery is not None:
+            return
+
+        async def on_service(device: IrisMdnsDevice) -> None:
+            await self._add_mdns_device(device, pairing_token)
+
+        discovery = IrisMdnsDiscovery(on_service, self._remove_mdns_service)
+        await discovery.start()
+        self._mdns_discovery = discovery
+
+    async def _add_mdns_device(
+        self, device: IrisMdnsDevice, pairing_token: str | None
+    ) -> None:
+        endpoint = f"tcp:{device.host}:{device.port}"
+        old_service = self._mdns_devices.get(device.device_id)
+        if old_service is not None and old_service != device.service_name:
+            await self._remove_mdns_service(old_service)
+        old_endpoint = self._mdns_services.get(device.service_name)
+        if old_endpoint is not None and old_endpoint != endpoint:
+            await self._remove_endpoint(old_endpoint, discovery="mdns")
+        if endpoint not in self._endpoint_tasks:
+            await self.add_tcp(
+                device.host,
+                device.port,
+                pairing_token=pairing_token,
+                metadata={
+                    "discovery": "mdns",
+                    "service_name": device.service_name,
+                    "advertised_device_id": device.device_id,
+                    "firmware_mode": device.mode,
+                    "pairing": device.pairing,
+                },
+            )
+        elif self._endpoint_states[endpoint].get("discovery") != "mdns":
+            return
+        else:
+            self._endpoint_states[endpoint].update(
+                {
+                    "service_name": device.service_name,
+                    "advertised_device_id": device.device_id,
+                    "firmware_mode": device.mode,
+                    "pairing": device.pairing,
+                }
+            )
+        self._mdns_services[device.service_name] = endpoint
+        self._mdns_devices[device.device_id] = device.service_name
+
+    async def _remove_mdns_service(self, service_name: str) -> None:
+        endpoint = self._mdns_services.pop(service_name, None)
+        if endpoint is None:
+            return
+        state = self._endpoint_states.get(endpoint, {})
+        device_id = state.get("advertised_device_id")
+        if device_id is not None and self._mdns_devices.get(device_id) == service_name:
+            self._mdns_devices.pop(device_id, None)
+        await self._remove_endpoint(endpoint, discovery="mdns")
+
+    async def _remove_endpoint(
+        self, endpoint: str, *, discovery: str | None = None
+    ) -> None:
+        state = self._endpoint_states.get(endpoint)
+        if state is None or (
+            discovery is not None and state.get("discovery") != discovery
+        ):
+            return
+        task = self._endpoint_tasks.pop(endpoint, None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        lock = self._locks.pop(endpoint, None)
+        if lock is not None:
+            lock.close()
+        self._endpoint_states.pop(endpoint, None)
 
     def _set_endpoint_state(
         self,
@@ -341,6 +432,16 @@ class IrisHub:
     async def _on_ready(self, session: DeviceSession) -> None:
         assert session.info is not None
         info = session.info
+        endpoint_state = self._endpoint_states[session.link.endpoint]
+        advertised_device_id = endpoint_state.get("advertised_device_id")
+        if (
+            advertised_device_id is not None
+            and advertised_device_id != info.device_id
+        ):
+            await session.close()
+            raise RuntimeError(
+                "mDNS device_id does not match the ESP-Iris HELLO identity"
+            )
         if session.link.endpoint.startswith("usb:"):
             self._endpoint_states[session.link.endpoint]["firmware_mode"] = (
                 _firmware_mode_from_identity(info.project_name, info.app_version)
@@ -729,6 +830,11 @@ class IrisHub:
 
     async def close(self) -> None:
         self._closing = True
+        if self._mdns_discovery is not None:
+            await self._mdns_discovery.close()
+            self._mdns_discovery = None
+        self._mdns_services.clear()
+        self._mdns_devices.clear()
         if self._discovery_task is not None:
             self._discovery_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

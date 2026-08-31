@@ -84,10 +84,26 @@ python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web \
   --tcp 192.0.2.22:19772
 ```
 
-Automatic application CDC discovery can add further devices while the Gateway
-is running. A device may wait on several configured transports, but a validated
-HELLO_ACK selects exactly one active session; it never maintains simultaneous
-USB and TCP sessions.
+Automatic application CDC and mDNS discovery can add further devices while the
+Gateway is running. A device may wait on several configured transports, but a
+validated HELLO_ACK selects exactly one active session; it never maintains
+simultaneous USB and TCP sessions.
+
+### Automatic TCP discovery with mDNS
+
+The default process browses `_esp-iris._tcp.local.` on multicast-capable local
+networks and supervises every valid advertised endpoint. Disable this when the
+host should connect only to explicit endpoints:
+
+```bash
+python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web --no-discover-mdns
+```
+
+Discovered services must advertise protocol version 1, a 32-character device
+ID, TCP port, firmware mode, and `none` or `hmac` pairing metadata. The HELLO
+identity must match the advertised device ID. Pairing tokens are never read
+from mDNS; supply the existing `--pairing-token` option when required. mDNS
+does not cross routed subnets unless the network provides an mDNS reflector.
 
 ### Automatic application USB discovery
 
@@ -121,7 +137,7 @@ descriptor does not identify the running firmware. Use the explicit option
 above or opt in with `--discover-usb-serial-jtag`. Stop the Gateway before
 flashing or monitoring through the same endpoint.
 
-### Connect raw TCP
+### Connect raw TCP explicitly
 
 The device application must first create its network interface. Then select its
 TCP endpoint in the Gateway/Workbench. Start with the

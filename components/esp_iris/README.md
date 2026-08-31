@@ -224,6 +224,23 @@ cross-volume operations are not exposed.
   component against the authenticated plan. Inventory hashes are calculated
   from the actual protected Flash ranges, including erased-byte padding.
 
+## TCP discovery with mDNS
+
+Products that enable the TCP transport can advertise it through DNS-SD after
+the product has initialized mDNS and selected its hostname:
+
+```c
+ESP_ERROR_CHECK(mdns_init());
+ESP_ERROR_CHECK(mdns_hostname_set("my-product-a1b2c3"));
+ESP_ERROR_CHECK(esp_iris_mdns_register(NULL));
+```
+
+The registration publishes `_esp-iris._tcp.local.` with a unique
+`ESP-Iris-<MAC suffix>` instance. ESP-Iris owns only that service; call
+`esp_iris_mdns_unregister()` before the product calls `mdns_free()`. Discovery
+is local-link metadata, not authentication, and never publishes a pairing
+token.
+
 ## Examples
 
 All public examples are packaged with the component under [`examples/`](examples/README.md).

@@ -206,6 +206,22 @@ offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换�
   系统固定区并逐项核对组件。Inventory 必须对当前 Flash 的完整保护区计算哈希，
   包含擦除态 `0xff` 填充，不能直接回传 sysmeta 中保存的期望值。
 
+## 使用 mDNS 发现 TCP 设备
+
+启用 TCP transport 的产品可在自行初始化 mDNS 并设置 hostname 后发布 DNS-SD
+服务：
+
+```c
+ESP_ERROR_CHECK(mdns_init());
+ESP_ERROR_CHECK(mdns_hostname_set("my-product-a1b2c3"));
+ESP_ERROR_CHECK(esp_iris_mdns_register(NULL));
+```
+
+该 API 发布 `_esp-iris._tcp.local.`，实例名为唯一的
+`ESP-Iris-<MAC 后缀>`。ESP-Iris 只拥有这项服务；产品调用 `mdns_free()` 前应先
+调用 `esp_iris_mdns_unregister()`。mDNS 元数据只用于本地链路发现，不承担认证，
+也不会广播 pairing token。
+
 ## 示例
 
 所有公开示例都随组件发布，位于 [`examples/`](examples/README.md)。

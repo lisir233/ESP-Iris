@@ -172,6 +172,17 @@ esp_err_t esp_iris_format_device_id(char out[33])
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t esp_iris_mdns_register(const esp_iris_mdns_config_t *config)
+{
+    (void)config;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_mdns_unregister(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t esp_iris_system_update_register(
     const esp_iris_system_update_backend_t *backend)
 {

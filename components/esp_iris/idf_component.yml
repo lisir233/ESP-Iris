@@ -37,3 +37,7 @@ dependencies:
     require: private
     rules:
       - if: target == esp32s31
+
+  espressif/mdns:
+    version: "^1.11.3"
+    require: private

@@ -160,6 +160,8 @@ async def _web(args: argparse.Namespace) -> None:
                     args.usb_discovery_interval,
                     include_usb_serial_jtag=args.discover_usb_serial_jtag,
                 )
+            if args.discover_mdns:
+                await hub.start_mdns_discovery(pairing_token=args.pairing_token)
 
         context = None
         fingerprint = None
@@ -720,6 +722,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="also probe Espressif USB Serial/JTAG ports; disabled by default",
     )
     web_parser.add_argument("--usb-discovery-interval", type=float, default=1.0)
+    web_parser.add_argument(
+        "--discover-mdns",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="automatically discover _esp-iris._tcp devices on the local network",
+    )
     web_parser.add_argument("--listen", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8443)
     web_parser.add_argument("--instance-id", default="default")

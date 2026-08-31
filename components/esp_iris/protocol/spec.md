@@ -553,3 +553,16 @@ layout this is the bootloader start through the byte before the partition
 table, plus the complete 4 KiB partition-table sector. The Gateway checks the
 source partition-table hash before BEGIN and verifies target inventory,
 operation ID, application identity, and product health after reboot.
+
+## Local TCP discovery (outside the wire envelope)
+
+TCP products may publish the DNS-SD service `_esp-iris._tcp.local.`. Each
+instance name is unique per device and its SRV port is the raw ESP-Iris TCP
+port. TXT records contain `device_id`, `protocol`, `transport`, `pairing`,
+`mode`, and `port`. For protocol v1, `transport=tcp`, `protocol=1`, and
+`pairing` is either `none` or `hmac`; `device_id` is the same 32-character
+lowercase identity later returned by HELLO. The Gateway rejects advertisements
+whose TXT identity and authenticated/session HELLO identity differ.
+
+mDNS is an unauthenticated local-link discovery hint. It never carries the
+pairing token and does not change the binary protocol or its golden vectors.

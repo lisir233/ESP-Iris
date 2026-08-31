@@ -3,7 +3,8 @@
 This example demonstrates the TCP ownership boundary. ESP-Iris starts a raw
 server on port `19772`; the application initializes an ESP-IDF Wi-Fi station,
 connects to an access point, obtains an address through DHCP, and reconnects
-when needed.
+when needed. The application also owns the mDNS daemon and hostname, then asks
+ESP-Iris to publish `_esp-iris._tcp.local.` after DHCP succeeds.
 
 Pairing is disabled here so the example focuses on networking. Use
 [`tcp_pairing`](../tcp_pairing/README.md) when authentication is required.
@@ -42,7 +43,10 @@ password:
 Wi-Fi ready: ip=192.0.2.10 iris=tcp://192.0.2.10:19772
 ```
 
-Add that endpoint in the Gateway and confirm that status/log traffic continues
-across a Wi-Fi reconnect.
+The Gateway discovers that endpoint automatically. Its service instance is
+`ESP-Iris-<last three STA MAC bytes>` so several boards can advertise the same
+service type without colliding. Confirm that status/log traffic continues
+across a Wi-Fi reconnect. Use `--no-discover-mdns` to test the manual `--tcp`
+path instead.
 
 Return to the [example index](../README.md).
