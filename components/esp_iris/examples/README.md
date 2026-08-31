@@ -14,9 +14,12 @@ during source development.
 | [`tcp_pairing`](tcp_pairing/README.md) | TCP | Challenge-HMAC authentication and persistent token provisioning | Private Wi-Fi credentials and pairing token |
 | [`rpc_jobs`](rpc_jobs/README.md) | USB CDC0 | Echo/info RPCs and a cancellable long-running job | Separate programming interface |
 | [`display_input`](display_input/README.md) | USB CDC0 | Pull screenshot backend, screen mirror, and pointer RPC | Separate programming interface |
-| [`media_streams`](media_streams/README.md) | USB CDC0 | Synthetic RGB565 image and PCM S16LE audio | Separate programming interface |
+| [`media_streams`](media_streams/README.md) | USB CDC0 | RGB565/RGB888/JPEG/PNG image profiles and PCM S16LE audio | Separate programming interface |
 | [`file_transfer`](file_transfer/README.md) | USB CDC0 | Streamed files, directories, rename, and safe deletion on FATFS | Separate programming interface and 2 MB partition layout |
 | [`ota`](ota/README.md) | USB CDC0 | Recovery-first/direct OTA, A/B slots, acceptance, and rollback | 16 MB flash layout and separate programming interface |
+| [`file_service`](file_service/README.md) | USB CDC0 | Bounded FATFS file browsing, streaming transfer, and mutations | 2 MB flash layout and separate programming interface |
+| [`crash_recovery`](crash_recovery/README.md) | USB CDC0 | Retained Core Dump and crash-threshold factory recovery | 16 MB flash layout and separate programming interface |
+| [`lifecycle`](lifecycle/README.md) | USB CDC0 | Stop, unregister, re-register, restart, and reconnect | Separate programming interface |
 
 Start with `minimal`, then choose a focused example for the service you are
 integrating.

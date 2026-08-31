@@ -1,6 +1,7 @@
 #include "iris_example.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "esp_check.h"
@@ -11,6 +12,14 @@
 static const char *TAG = "iris_pairing";
 static const char s_initial_pairing_token[] =
     CONFIG_ESP_IRIS_EXAMPLE_PAIRING_TOKEN;
+
+static void wipe_secret(void *buffer, size_t size)
+{
+    volatile uint8_t *cursor = buffer;
+    while (size-- != 0) {
+        *cursor++ = 0;
+    }
+}
 
 static bool token_is_valid(const char token[65])
 {
@@ -36,7 +45,7 @@ static esp_err_t pairing_token_exists(bool *exists)
     uint8_t token[32];
     size_t token_size = sizeof(token);
     err = nvs_get_blob(handle, "pair_token", token, &token_size);
-    memset(token, 0, sizeof(token));
+    wipe_secret(token, sizeof(token));
     nvs_close(handle);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         return ESP_OK;
@@ -68,12 +77,12 @@ static esp_err_t provision_initial_pairing_token(void)
     char token[65];
     strlcpy(token, s_initial_pairing_token, sizeof(token));
     if (!token_is_valid(token)) {
-        memset(token, 0, sizeof(token));
+        wipe_secret(token, sizeof(token));
         ESP_LOGE(TAG, "the initial pairing token must be lowercase hex");
         return ESP_ERR_INVALID_ARG;
     }
     const esp_err_t err = esp_iris_pairing_token_set(token);
-    memset(token, 0, sizeof(token));
+    wipe_secret(token, sizeof(token));
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "initial pairing token stored in NVS");
     }
@@ -88,4 +97,22 @@ void iris_example_provision_pairing(void)
 void iris_example_start(void)
 {
     ESP_ERROR_CHECK(esp_iris_start());
+
+    /* Verify the public retrieval path without exposing the secret through
+     * logs, RPC, or the Iris transport. */
+    char token[65];
+    ESP_ERROR_CHECK(esp_iris_pairing_token_get(token));
+    ESP_ERROR_CHECK(token_is_valid(token) ? ESP_OK : ESP_ERR_INVALID_STATE);
+    wipe_secret(token, sizeof(token));
+}
+
+esp_err_t iris_example_provisioning_rotate_token(char out[65])
+{
+    if (out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    /* Rotation persists immediately. A real product must invoke this only
+     * while an authenticated physical or otherwise secure provisioning
+     * channel can deliver the replacement token. Never print this buffer. */
+    return esp_iris_pairing_token_rotate(out);
 }

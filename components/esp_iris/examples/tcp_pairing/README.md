@@ -23,6 +23,13 @@ Later boots preserve the stored value so `esp_iris_pairing_token_rotate()`
 remains effective. Reprovision or erase NVS only when intentionally replacing
 the device identity material.
 
+After Iris starts, the example verifies `esp_iris_pairing_token_get()` and
+immediately wipes its temporary buffer. It also provides
+`iris_example_provisioning_rotate_token()` as an integration skeleton for a
+product-owned secure provisioning surface. The skeleton is intentionally not
+connected to an Iris RPC and never logs the returned token. A product calling
+it must deliver the replacement out-of-band and wipe the caller-owned buffer.
+
 ## Build and flash
 
 ```bash

@@ -27,6 +27,11 @@ files:
     - tools/**/.ruff_cache/**/*
     - tools/**/test-results/**/*
     - tools/**/playwright-report/**/*
+    - examples/**/build*/**/*
+    - examples/**/managed_components/**/*
+    - examples/**/dependencies.lock
+    - examples/**/sdkconfig
+    - examples/**/sdkconfig.old
     - examples/**/sdkconfig.local.defaults
 
 dependencies:

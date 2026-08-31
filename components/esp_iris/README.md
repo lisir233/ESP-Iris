@@ -255,6 +255,9 @@ All public examples are packaged with the component under [`examples/`](examples
 | [`media_streams`](examples/media_streams/README.md) | USB CDC0 | Synthetic image and PCM audio streams |
 | [`file_transfer`](examples/file_transfer/README.md) | USB CDC0 | Streamed file upload/download and metadata mutations |
 | [`ota`](examples/ota/README.md) | USB CDC0 | Recovery-first/direct OTA, acceptance, and rollback |
+| [`file_service`](examples/file_service/README.md) | USB CDC0 | FATFS logical volume and bounded file operations |
+| [`crash_recovery`](examples/crash_recovery/README.md) | USB CDC0 | Retained Core Dump and factory recovery after repeated crashes |
+| [`lifecycle`](examples/lifecycle/README.md) | USB CDC0 | Stop, unregister, restart, and reconnect |
 
 Hardware-focused internal fixtures remain under `test_apps/`; they are not part
 of the published component archive.

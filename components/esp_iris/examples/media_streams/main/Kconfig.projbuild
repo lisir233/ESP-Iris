@@ -1,0 +1,21 @@
+menu "ESP-Iris media streams example"
+
+choice ESP_IRIS_MEDIA_EXAMPLE_IMAGE_FORMAT
+    prompt "Synthetic image format"
+    default ESP_IRIS_MEDIA_EXAMPLE_RGB565
+
+config ESP_IRIS_MEDIA_EXAMPLE_RGB565
+    bool "RGB565"
+
+config ESP_IRIS_MEDIA_EXAMPLE_RGB888
+    bool "RGB888"
+
+config ESP_IRIS_MEDIA_EXAMPLE_JPEG
+    bool "Embedded JPEG"
+
+config ESP_IRIS_MEDIA_EXAMPLE_PNG
+    bool "Embedded PNG"
+
+endchoice
+
+endmenu

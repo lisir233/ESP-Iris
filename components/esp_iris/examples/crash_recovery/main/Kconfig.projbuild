@@ -1,0 +1,29 @@
+menu "ESP-Iris crash/recovery example"
+
+config ESP_IRIS_CRASH_EXAMPLE_RECOVERY
+    bool "Build the factory recovery profile"
+    default n
+
+config ESP_IRIS_CRASH_EXAMPLE_AUTO_CRASH
+    bool "Automatically inject startup crashes"
+    depends on !ESP_IRIS_CRASH_EXAMPLE_RECOVERY
+    default y
+
+config ESP_IRIS_CRASH_EXAMPLE_CRASH_LIMIT
+    int "Consecutive crash threshold"
+    range 1 100
+    default 1
+
+config ESP_IRIS_CRASH_EXAMPLE_CRASH_DELAY_MS
+    int "Delay before an injected crash (ms)"
+    depends on ESP_IRIS_CRASH_EXAMPLE_AUTO_CRASH
+    range 500 60000
+    default 3000
+
+config ESP_IRIS_CRASH_EXAMPLE_STABLE_RESET_MS
+    int "Stable runtime before clearing the crash count (ms)"
+    depends on !ESP_IRIS_CRASH_EXAMPLE_RECOVERY
+    range 1000 60000
+    default 10000
+
+endmenu

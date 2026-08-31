@@ -13,6 +13,9 @@ All notable ESP-Iris component changes are documented in this file.
   with bounded HELLO_ACK arbitration and one active transport owner.
 - Add a standalone FATFS-backed file-transfer example covering streamed
   upload/download, directory operations, rename, and safe deletion.
+- Add public file-service, retained-crash recovery, and runtime lifecycle
+  examples; extend media formats, pairing provisioning guidance, and OTA
+  policy profiles.
 - Allow cross-project OTA by default and add
   `CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` for products that require
   the target image to retain the running firmware project name.

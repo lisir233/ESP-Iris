@@ -9,10 +9,11 @@
 #include "esp_iris.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "media_assets.h"
 
 #define IMAGE_WIDTH 40U
 #define IMAGE_HEIGHT 24U
-#define IMAGE_BYTES (IMAGE_WIDTH * IMAGE_HEIGHT * 2U)
+#define IMAGE_BUFFER_BYTES (IMAGE_WIDTH * IMAGE_HEIGHT * 3U)
 #define AUDIO_SAMPLE_RATE 16000U
 #define AUDIO_CHANNELS 1U
 #define AUDIO_SAMPLES_PER_CHUNK 1600U
@@ -25,9 +26,10 @@ static const int16_t s_sine[32] = {
     -16384, -16069, -15136, -13623, -11585, -9102, -6269, -3196,
 };
 
-static uint8_t s_image[IMAGE_BYTES];
+static uint8_t s_image[IMAGE_BUFFER_BYTES];
 static uint8_t s_audio[AUDIO_SAMPLES_PER_CHUNK * sizeof(int16_t)];
 
+#if CONFIG_ESP_IRIS_MEDIA_EXAMPLE_RGB565
 static void render_rgb565(uint32_t frame_id)
 {
     for (uint32_t y = 0; y < IMAGE_HEIGHT; ++y) {
@@ -42,6 +44,75 @@ static void render_rgb565(uint32_t frame_id)
             s_image[offset + 1U] = (uint8_t)(pixel >> 8);
         }
     }
+}
+#endif
+
+#if CONFIG_ESP_IRIS_MEDIA_EXAMPLE_RGB888
+static void render_rgb888(uint32_t frame_id)
+{
+    for (uint32_t y = 0; y < IMAGE_HEIGHT; ++y) {
+        for (uint32_t x = 0; x < IMAGE_WIDTH; ++x) {
+            const size_t offset = (y * IMAGE_WIDTH + x) * 3U;
+            s_image[offset] = (uint8_t)((x * 255U) / (IMAGE_WIDTH - 1U));
+            s_image[offset + 1U] =
+                (uint8_t)((y * 255U) / (IMAGE_HEIGHT - 1U));
+            s_image[offset + 2U] = (uint8_t)(x + y + frame_id);
+        }
+    }
+}
+#endif
+
+static esp_iris_media_desc_t image_description(void)
+{
+#if CONFIG_ESP_IRIS_MEDIA_EXAMPLE_RGB888
+    return (esp_iris_media_desc_t) {
+        .width = IMAGE_WIDTH,
+        .height = IMAGE_HEIGHT,
+        .stride = IMAGE_WIDTH * 3U,
+        .format = ESP_IRIS_PIXEL_FORMAT_RGB888,
+    };
+#elif CONFIG_ESP_IRIS_MEDIA_EXAMPLE_JPEG
+    return (esp_iris_media_desc_t) {
+        .width = 8,
+        .height = 8,
+        .format = ESP_IRIS_PIXEL_FORMAT_JPEG,
+        .quality = 75,
+    };
+#elif CONFIG_ESP_IRIS_MEDIA_EXAMPLE_PNG
+    return (esp_iris_media_desc_t) {
+        .width = 8,
+        .height = 8,
+        .format = ESP_IRIS_PIXEL_FORMAT_PNG,
+    };
+#else
+    return (esp_iris_media_desc_t) {
+        .width = IMAGE_WIDTH,
+        .height = IMAGE_HEIGHT,
+        .stride = IMAGE_WIDTH * 2U,
+        .format = ESP_IRIS_PIXEL_FORMAT_RGB565,
+    };
+#endif
+}
+
+static const uint8_t *render_image(uint32_t frame_id, size_t *size)
+{
+#if CONFIG_ESP_IRIS_MEDIA_EXAMPLE_RGB888
+    render_rgb888(frame_id);
+    *size = IMAGE_WIDTH * IMAGE_HEIGHT * 3U;
+    return s_image;
+#elif CONFIG_ESP_IRIS_MEDIA_EXAMPLE_JPEG
+    (void)frame_id;
+    *size = iris_example_jpeg_size;
+    return iris_example_jpeg;
+#elif CONFIG_ESP_IRIS_MEDIA_EXAMPLE_PNG
+    (void)frame_id;
+    *size = iris_example_png_size;
+    return iris_example_png;
+#else
+    render_rgb565(frame_id);
+    *size = IMAGE_WIDTH * IMAGE_HEIGHT * 2U;
+    return s_image;
+#endif
 }
 
 static void render_pcm_s16le(uint32_t *phase)
@@ -58,12 +129,7 @@ static void render_pcm_s16le(uint32_t *phase)
 static void media_task(void *arg)
 {
     (void)arg;
-    const esp_iris_media_desc_t image_description = {
-        .width = IMAGE_WIDTH,
-        .height = IMAGE_HEIGHT,
-        .stride = IMAGE_WIDTH * 2U,
-        .format = ESP_IRIS_PIXEL_FORMAT_RGB565,
-    };
+    const esp_iris_media_desc_t image = image_description();
     /* For AUDIO, width carries sample rate, height carries channel count and
      * stride carries bytes per interleaved sample frame. */
     const esp_iris_media_desc_t audio_description = {
@@ -80,10 +146,12 @@ static void media_task(void *arg)
         /* Generating and submitting data only while the host has opened the
          * channel avoids wasting CPU and allocating the Iris media slot. */
         if (esp_iris_media_is_streaming(ESP_IRIS_CHANNEL_IMAGE)) {
-            render_rgb565(image_frame_id);
+            size_t image_size;
+            const uint8_t *image_data = render_image(image_frame_id,
+                                                     &image_size);
             ESP_ERROR_CHECK_WITHOUT_ABORT(esp_iris_media_submit(
-                ESP_IRIS_CHANNEL_IMAGE, &image_description, ++image_frame_id,
-                0, s_image, sizeof(s_image)));
+                ESP_IRIS_CHANNEL_IMAGE, &image, ++image_frame_id, 0,
+                image_data, image_size));
         }
         if (esp_iris_media_is_streaming(ESP_IRIS_CHANNEL_AUDIO)) {
             render_pcm_s16le(&audio_phase);

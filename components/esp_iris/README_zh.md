@@ -236,6 +236,9 @@ ESP_ERROR_CHECK(esp_iris_mdns_register(NULL));
 | [`media_streams`](examples/media_streams/README.md) | USB CDC0 | 合成图像和 PCM 音频流 |
 | [`file_transfer`](examples/file_transfer/README.md) | USB CDC0 | 流式文件上传/下载和元数据操作 |
 | [`ota`](examples/ota/README.md) | USB CDC0 | Recovery-first/直接 OTA、验收和回滚 |
+| [`file_service`](examples/file_service/README.md) | USB CDC0 | FATFS 逻辑卷和有界文件操作 |
+| [`crash_recovery`](examples/crash_recovery/README.md) | USB CDC0 | 保留 Core Dump，并在连续崩溃后进入 factory recovery |
+| [`lifecycle`](examples/lifecycle/README.md) | USB CDC0 | 停止、注销、重启和重连 |
 
 硬件内部 fixture 保留在 `test_apps/`，不进入发布归档。
 

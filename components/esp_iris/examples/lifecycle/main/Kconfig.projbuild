@@ -1,0 +1,8 @@
+menu "ESP-Iris lifecycle example"
+
+config ESP_IRIS_LIFECYCLE_EXAMPLE_RESTART_DELAY_MS
+    int "Delay between stop and restart (ms)"
+    range 250 10000
+    default 2000
+
+endmenu

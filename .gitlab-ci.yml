@@ -56,12 +56,21 @@ esp32s31-examples:
     - idf.py -C components/esp_iris/examples/rpc_jobs -B build-ci-rpc-jobs-usj -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-rpc-jobs-usj/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.usj.defaults build
     - idf.py -C components/esp_iris/examples/display_input -B build-ci-display-input -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-display-input/sdkconfig build
     - idf.py -C components/esp_iris/examples/media_streams -B build-ci-media-streams -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-media-streams/sdkconfig build
+    - idf.py -C components/esp_iris/examples/media_streams -B build-ci-media-rgb888 -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-media-rgb888/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.rgb888.defaults" build
+    - idf.py -C components/esp_iris/examples/media_streams -B build-ci-media-jpeg -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-media-jpeg/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.jpeg.defaults" build
+    - idf.py -C components/esp_iris/examples/media_streams -B build-ci-media-png -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-media-png/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.png.defaults" build
     - idf.py -C components/esp_iris/examples/file_transfer -B build-ci-file-transfer -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-file-transfer/sdkconfig build
+    - idf.py -C components/esp_iris/examples/file_service -B build-ci-file-service -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-file-service/sdkconfig build
+    - idf.py -C components/esp_iris/examples/lifecycle -B build-ci-lifecycle -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-lifecycle/sdkconfig build
+    - idf.py -C components/esp_iris/examples/crash_recovery -B build-ci-crash-recovery -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-crash-recovery/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
+    - idf.py -C components/esp_iris/examples/crash_recovery -B build-ci-crash-application -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-crash-application/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
     - idf.py -C components/esp_iris/examples/ota -B build-ci-recovery -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-recovery/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.recovery.defaults build
     - idf.py -C components/esp_iris/examples/ota -B build-ci-a -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-a/sdkconfig build
     - idf.py -C components/esp_iris/examples/ota -B build-ci-b -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-b/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.candidate.defaults build
     - idf.py -C components/esp_iris/examples/ota -B build-ci-rollback -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-rollback/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.rollback.defaults build
     - idf.py -C components/esp_iris/examples/ota -B build-ci-application -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-application/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.application.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-fallback -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-fallback/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.fallback.defaults build
+    - idf.py -C components/esp_iris/examples/ota -B build-ci-project-match -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-project-match/sdkconfig -D SDKCONFIG_DEFAULTS=sdkconfig.project-match.defaults build
     - idf.py -C components/esp_iris/test_apps/services_usb -B build-ci-services-usb -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-services-usb/sdkconfig build
     - idf.py -C components/esp_iris/test_apps/coredump -B build-ci-coredump -D SDKCONFIG=$CI_PROJECT_DIR/build-ci-coredump/sdkconfig build
   artifacts:

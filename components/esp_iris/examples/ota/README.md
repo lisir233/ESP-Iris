@@ -26,12 +26,27 @@ have been reviewed.
 | Normal B | `sdkconfig.candidate.defaults` | Recovery-first candidate version |
 | Rollback test | `sdkconfig.rollback.defaults` | Does not accept automatically |
 | Direct application | `sdkconfig.application.defaults` | Writes a non-running application slot directly |
+| Recovery with fallback | `sdkconfig.fallback.defaults` | Recovery remains default; explicit application execution is also allowed |
+| Project-name enforcement | `sdkconfig.project-match.defaults` | Rejects images whose project name differs |
 
 Recovery-first normal firmware sets
 `CONFIG_ESP_IRIS_OTA_DEFAULT_VIA_RECOVERY=y` and can omit the OTA writer. The
 Gateway asks it to boot factory recovery, waits for the same `device_id` to
 reconnect in recovery mode, and then transfers the image. There is no silent
 fallback to direct application OTA.
+
+The fallback profile keeps both writers available, but never changes execution
+mode silently. Select its application writer explicitly:
+
+```bash
+python "$IRIS" ctl ota DEVICE_ID IMAGE.bin --elf IMAGE.elf \
+  --execution-mode application --wait
+```
+
+For project-name enforcement, build and flash
+`sdkconfig.project-match.defaults`, then attempt to transfer a valid ESP-IDF
+application from a differently named project. The writer rejects the mismatch;
+an image built from this `esp_iris_ota` project remains eligible.
 
 ## Install factory recovery
 

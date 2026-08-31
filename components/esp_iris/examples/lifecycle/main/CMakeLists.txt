@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c" "iris_example.c" "media_assets.c"
+    SRCS "main.c"
     INCLUDE_DIRS "."
     REQUIRES esp_iris freertos
 )
