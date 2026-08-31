@@ -936,6 +936,7 @@ esp_err_t iris_services_authenticate(const iris_runtime_t *runtime,
                              sizeof(expected))) {
         state->auth_retry_after_us = now +
             (int64_t)CONFIG_ESP_IRIS_AUTH_FAILURE_DELAY_MS * 1000;
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_ESP_IRIS_AUTH_FAILURE_DELAY_MS));
         return ESP_ERR_INVALID_CRC;
     }
     state->auth_retry_after_us = 0;

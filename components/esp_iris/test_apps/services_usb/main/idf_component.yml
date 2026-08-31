@@ -4,3 +4,6 @@ dependencies:
 
   esp_iris:
     path: ../../..
+
+  joltwallet/littlefs:
+    version: "==1.22.3"

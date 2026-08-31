@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import struct
 
+import pytest
+
 from iris_gateway.protocol import (
     Channel,
     ControlType,
@@ -12,6 +14,7 @@ from iris_gateway.protocol import (
     Frame,
     MediaType,
     OtaType,
+    ProtocolError,
     TlvTag,
     decode_frame,
     encode_frame,
@@ -444,6 +447,54 @@ def test_pairing_challenge_hmac_gates_session_ready() -> None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+    asyncio.run(scenario())
+
+
+def test_missing_pairing_token_has_the_same_minimum_failure_delay() -> None:
+    async def scenario() -> None:
+        link = FakeLink()
+
+        async def on_ready(session: DeviceSession) -> None:
+            pass
+
+        async def on_event(event: dict[str, object]) -> None:
+            pass
+
+        session = DeviceSession(link, on_ready, on_event)
+        session.AUTH_MISSING_TOKEN_DELAY_SECONDS = 0.01
+        task = asyncio.create_task(session.run())
+        started = asyncio.get_running_loop().time()
+        await link.incoming.put(
+            encode_frame(
+                Frame(
+                    channel=Channel.CONTROL,
+                    type=ControlType.HELLO,
+                    session_id=0x76543210,
+                    sequence=1,
+                    payload=encode_tlv(
+                        [
+                            (
+                                TlvTag.DEVICE_ID,
+                                bytes.fromhex(
+                                    "00112233445566778899aabbccddeeff"
+                                ),
+                            ),
+                            (TlvTag.BOOT_ID, struct.pack("<Q", 9)),
+                            (TlvTag.PROTOCOL_VERSION, struct.pack("<H", 1)),
+                            (TlvTag.CAPABILITIES, struct.pack("<Q", 0x1FF)),
+                            (TlvTag.TRANSPORT, b"\x02"),
+                            (TlvTag.AUTH_MODE, b"\x01"),
+                            (TlvTag.AUTH_CHALLENGE, bytes.fromhex("44" * 32)),
+                            (TlvTag.MAX_PAYLOAD, struct.pack("<I", 4000)),
+                        ]
+                    ),
+                )
+            )
+        )
+        with pytest.raises(ProtocolError, match="requires a pairing token"):
+            await task
+        assert asyncio.get_running_loop().time() - started >= 0.008
 
     asyncio.run(scenario())
 

@@ -22,5 +22,6 @@ export default defineConfig({
     colorScheme: "light",
     locale: "zh-CN",
     timezoneId: "Asia/Shanghai",
+    ignoreHTTPSErrors: true,
   },
 });

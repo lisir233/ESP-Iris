@@ -9,6 +9,7 @@
 #include "esp_netif.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_rom_sys.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -127,6 +128,12 @@ static esp_err_t test_recovery_sanitize(void)
 
 static esp_err_t ensure_initial_pairing_token(void)
 {
+    if (CONFIG_ESP_IRIS_TEST_PAIRING_TOKEN[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char configured_token[65] = {0};
+    strlcpy(configured_token, CONFIG_ESP_IRIS_TEST_PAIRING_TOKEN,
+            sizeof(configured_token));
     nvs_handle_t handle;
     esp_err_t err = nvs_open("esp_iris", NVS_READONLY, &handle);
     if (err == ESP_OK) {
@@ -145,7 +152,7 @@ static esp_err_t ensure_initial_pairing_token(void)
     if (err != ESP_ERR_NVS_NOT_FOUND && err != ESP_ERR_INVALID_SIZE) {
         return err;
     }
-    return esp_iris_pairing_token_set(CONFIG_ESP_IRIS_TEST_PAIRING_TOKEN);
+    return esp_iris_pairing_token_set(configured_token);
 }
 
 static void wifi_event(void *arg, esp_event_base_t base, int32_t id,
@@ -282,8 +289,13 @@ static esp_err_t rotate_token_rpc(const esp_iris_rpc_request_t *request,
     (void)response_capacity;
     (void)user_ctx;
     *response_size = 0;
-    return esp_iris_pairing_token_set(
-        CONFIG_ESP_IRIS_TEST_NEXT_PAIRING_TOKEN);
+    if (CONFIG_ESP_IRIS_TEST_NEXT_PAIRING_TOKEN[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char next_token[65] = {0};
+    strlcpy(next_token, CONFIG_ESP_IRIS_TEST_NEXT_PAIRING_TOKEN,
+            sizeof(next_token));
+    return esp_iris_pairing_token_set(next_token);
 }
 
 static esp_err_t healthy_rpc(const esp_iris_rpc_request_t *request,
@@ -453,4 +465,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_iris_screen_register(&screen));
     ESP_ERROR_CHECK(esp_iris_start());
     maybe_mark_pending_ota_healthy();
+    esp_rom_printf("IRIS_TCP_PAIRING_READY ip=%s port=%u\n", s_ip_address,
+                   (unsigned)CONFIG_ESP_IRIS_TCP_PORT);
 }

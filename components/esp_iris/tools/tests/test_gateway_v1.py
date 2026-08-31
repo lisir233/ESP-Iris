@@ -419,6 +419,55 @@ def test_named_agent_token_can_switch_mode_without_approval(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_crash_report_matches_retained_elf_to_archived_candidate(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        artifact = store.save_firmware_artifact(
+            binary=b"candidate-bin",
+            elf=b"candidate-elf",
+            map_data=b"candidate-map",
+            metadata={
+                "project_name": "candidate",
+                "version": "1.0.0",
+                "chip_id": 999,
+            },
+        )
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        original = hub.crash_report
+
+        async def report(device_id: str) -> dict[str, object]:
+            value = await original(device_id)
+            return {
+                **value,
+                "core_dump_valid": True,
+                "core_dump_elf_sha256": artifact["elf_sha256"],
+                "core_dump_elf_sha256_complete": True,
+                "decode_eligible": False,
+            }
+
+        hub.crash_report = report
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/v1/devices/demo-a1b2c3d4/crashes"
+            )
+            assert response.status == 200
+            crash = (await response.json())["reports"][0]
+            assert crash["decode_eligible"] is True
+            assert crash["candidate_artifact_id"] == artifact["artifact_id"]
+            assert crash["candidate_elf_sha256"] == artifact["elf_sha256"]
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
 def test_file_mutations_require_explicit_agent_scopes(tmp_path) -> None:
     async def scenario() -> None:
         store = GatewayStore(tmp_path)

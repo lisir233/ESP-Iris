@@ -99,6 +99,7 @@ class DeviceInfo:
 class DeviceSession:
     LOG_CREDIT_GRANT = 256 * 1024
     LOG_CREDIT_LOW_WATER = 128 * 1024
+    AUTH_MISSING_TOKEN_DELAY_SECONDS = 0.5
 
     def __init__(
         self,
@@ -285,6 +286,7 @@ class DeviceSession:
         if len(challenge) != 32:
             raise ProtocolError("authenticated HELLO has no 32-byte challenge")
         if self._pairing_token is None:
+            await asyncio.sleep(self.AUTH_MISSING_TOKEN_DELAY_SECONDS)
             raise ProtocolError("device requires a pairing token")
         nonce = secrets.token_bytes(16)
         message = (

@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_rom_sys.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -38,9 +39,10 @@ typedef enum {
 } recovery_command_t;
 
 static const char *TAG = "iris_crash_example";
-static QueueHandle_t s_recovery_commands;
 
 #if CONFIG_ESP_IRIS_CRASH_EXAMPLE_RECOVERY
+static QueueHandle_t s_recovery_commands;
+
 static void put_le32(uint8_t out[4], uint32_t value)
 {
     out[0] = (uint8_t)value;
@@ -228,6 +230,7 @@ static void recovery_task(void *arg)
         state.injection_enabled = command == RECOVERY_COMMAND_RETRY;
         state.planned_restart = true;
         ESP_ERROR_CHECK(state_write(&state));
+        ESP_ERROR_CHECK(esp_iris_mark_planned_restart());
         ESP_ERROR_CHECK(esp_ota_set_boot_partition(application));
         vTaskDelay(pdMS_TO_TICKS(250));
         esp_restart();
@@ -293,6 +296,9 @@ void app_main(void)
                                           CRASH_RETRY_METHOD_ID,
                                           retry_rpc, NULL));
     ESP_ERROR_CHECK(esp_iris_start());
+    esp_rom_printf("IRIS_CRASH_RECOVERY_READY mode=recovery count=%" PRIu32
+                   " limit=%" PRIu32 "\n", state_read().count,
+                   state_read().limit);
     ESP_LOGW(TAG, "RECOVERY: retained Core Dump is available through Iris");
     ESP_ERROR_CHECK(xTaskCreate(recovery_task, "crash_recovery", 3072, NULL,
                                 4, NULL) == pdPASS
@@ -306,6 +312,9 @@ void app_main(void)
     state.planned_restart = false;
     ESP_ERROR_CHECK(state_write(&state));
     ESP_ERROR_CHECK(esp_iris_start());
+    esp_rom_printf("IRIS_CRASH_RECOVERY_READY mode=application count=%" PRIu32
+                   " limit=%" PRIu32 " auto_crash=%u\n", state.count,
+                   state.limit, state.injection_enabled ? 1U : 0U);
     ESP_LOGI(TAG, "APPLICATION: crash=%u count=%" PRIu32 "/%" PRIu32,
              state.injection_enabled, state.count, state.limit);
     ESP_ERROR_CHECK(xTaskCreate(crash_or_stabilize_task, "crash_inject", 3072,

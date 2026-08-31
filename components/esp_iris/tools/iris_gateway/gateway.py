@@ -1309,9 +1309,32 @@ def create_app(service: GatewayService) -> web.Application:
         if blocked:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
-        return web.json_response(
-            {"reports": [await service.device_hub.crash_report(device_id)]}
+        report = await service.device_hub.crash_report(device_id)
+        core_elf_sha = str(report.get("core_dump_elf_sha256", ""))
+        candidate = next(
+            (
+                artifact
+                for artifact in service.store.firmware_artifacts()
+                if report.get("core_dump_elf_sha256_complete")
+                and artifact.get("elf_sha256") == core_elf_sha
+            ),
+            None,
         )
+        report = {
+            **report,
+            "candidate_artifact_id": (
+                candidate.get("artifact_id") if candidate is not None else None
+            ),
+            "candidate_elf_sha256": (
+                candidate.get("elf_sha256") if candidate is not None else None
+            ),
+            "decode_eligible": bool(
+                report.get("core_dump_valid")
+                and report.get("core_dump_elf_sha256_complete")
+                and candidate is not None
+            ),
+        }
+        return web.json_response({"reports": [report]})
 
     async def core_dump(request: web.Request) -> web.StreamResponse:
         blocked = service.require_develop()
