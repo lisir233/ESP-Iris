@@ -100,6 +100,7 @@ class DeviceSession:
     LOG_CREDIT_GRANT = 256 * 1024
     LOG_CREDIT_LOW_WATER = 128 * 1024
     AUTH_MISSING_TOKEN_DELAY_SECONDS = 0.5
+    OTA_IN_FLIGHT_BYTES = 4096
 
     def __init__(
         self,
@@ -216,6 +217,31 @@ class DeviceSession:
         async with self._write_lock:
             await self.link.write(encode_frame(frame))
 
+    async def _request_unlocked(
+        self,
+        channel: int,
+        type_: int,
+        payload: bytes = b"",
+        timeout: float = 3.0,
+        *,
+        stream_id: int = 0,
+    ) -> Frame:
+        await self.wait_ready(timeout)
+        request_id = self._next_request_id()
+        future = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = future
+        try:
+            await self._send(
+                channel,
+                type_,
+                payload,
+                request_id=request_id,
+                stream_id=stream_id,
+            )
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._pending.pop(request_id, None)
+
     async def _request(
         self,
         channel: int,
@@ -226,21 +252,13 @@ class DeviceSession:
         stream_id: int = 0,
     ) -> Frame:
         async with self._request_lock:
-            await self.wait_ready(timeout)
-            request_id = self._next_request_id()
-            future = asyncio.get_running_loop().create_future()
-            self._pending[request_id] = future
-            try:
-                await self._send(
-                    channel,
-                    type_,
-                    payload,
-                    request_id=request_id,
-                    stream_id=stream_id,
-                )
-                return await asyncio.wait_for(future, timeout)
-            finally:
-                self._pending.pop(request_id, None)
+            return await self._request_unlocked(
+                channel,
+                type_,
+                payload,
+                timeout,
+                stream_id=stream_id,
+            )
 
     @staticmethod
     def _text(fields: dict[int, bytes], tag: TlvTag) -> str:
@@ -735,14 +753,20 @@ class DeviceSession:
             + project
             + release
         )
-        frame = await self._request(
-            Channel.OTA, OtaType.BEGIN, begin, timeout
-        )
+        if progress_callback is not None:
+            await progress_callback(
+                {
+                    "stage": "erasing",
+                    "bytes_received": 0,
+                    "bytes_total": len(image),
+                    "progress_permille": 0,
+                    "partition": "",
+                }
+            )
+        frame = await self._request(Channel.OTA, OtaType.BEGIN, begin, timeout)
         if frame.type != OtaType.BEGIN_RESPONSE or len(frame.payload) < 11:
             raise ProtocolError("unexpected OTA begin response")
-        job_id, total_size, chunk_size = struct.unpack_from(
-            "<IIH", frame.payload
-        )
+        job_id, total_size, chunk_size = struct.unpack_from("<IIH", frame.payload)
         label_size = frame.payload[10]
         if (
             total_size != len(image)
@@ -767,14 +791,33 @@ class DeviceSession:
         end_confirmed_by_disconnect = False
         try:
             while offset < len(image):
-                chunk = image[offset : offset + chunk_size]
+                request_count = max(1, self.OTA_IN_FLIGHT_BYTES // chunk_size)
+                batch: list[tuple[int, bytes]] = []
+                batch_offset = offset
+                while batch_offset < len(image) and len(batch) < request_count:
+                    chunk = image[batch_offset : batch_offset + chunk_size]
+                    batch.append((batch_offset, chunk))
+                    batch_offset += len(chunk)
                 try:
-                    data_response = await self._request(
-                        Channel.OTA,
-                        OtaType.DATA,
-                        struct.pack("<I", offset) + chunk,
-                        timeout,
-                    )
+                    async with self._request_lock:
+                        tasks = [
+                            asyncio.create_task(
+                                self._request_unlocked(
+                                    Channel.OTA,
+                                    OtaType.DATA,
+                                    struct.pack("<I", chunk_offset) + chunk,
+                                    timeout,
+                                )
+                            )
+                            for chunk_offset, chunk in batch
+                        ]
+                        try:
+                            data_responses = await asyncio.gather(*tasks)
+                        except BaseException:
+                            for task in tasks:
+                                task.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                            raise
                 except TimeoutError:
                     status = await self.ota_status(timeout=timeout)
                     if not status["active"] or status["job_id"] != job_id:
@@ -782,7 +825,11 @@ class DeviceSession:
                             f"OTA data response timed out; device status is {status}"
                         ) from None
                     received = int(status["bytes_received"])
-                    if received not in (offset, offset + len(chunk)):
+                    accepted_offsets = {offset}
+                    accepted_offsets.update(
+                        chunk_offset + len(chunk) for chunk_offset, chunk in batch
+                    )
+                    if received not in accepted_offsets:
                         raise ProtocolError(
                             f"OTA resumed at unexpected byte offset {received}"
                         )
@@ -790,28 +837,31 @@ class DeviceSession:
                     if progress_callback is not None:
                         await progress_callback(status)
                     continue
-                if (
-                    data_response.type != OtaType.DATA_RESPONSE
-                    or len(data_response.payload) != 8
+                for (chunk_offset, chunk), data_response in zip(
+                    batch, data_responses, strict=True
                 ):
-                    raise ProtocolError("unexpected OTA data response")
-                received, progress, reserved = struct.unpack(
-                    "<IHH", data_response.payload
-                )
-                if received != offset + len(chunk) or reserved != 0:
-                    raise ProtocolError("invalid OTA progress")
-                offset = received
-                if progress_callback is not None:
-                    await progress_callback(
-                        {
-                            "stage": "transferring",
-                            "job_id": job_id,
-                            "bytes_received": received,
-                            "bytes_total": len(image),
-                            "progress_permille": progress,
-                            "partition": partition,
-                        }
+                    if (
+                        data_response.type != OtaType.DATA_RESPONSE
+                        or len(data_response.payload) != 8
+                    ):
+                        raise ProtocolError("unexpected OTA data response")
+                    received, progress, reserved = struct.unpack(
+                        "<IHH", data_response.payload
                     )
+                    if received != chunk_offset + len(chunk) or reserved != 0:
+                        raise ProtocolError("invalid OTA progress")
+                    offset = received
+                    if progress_callback is not None:
+                        await progress_callback(
+                            {
+                                "stage": "transferring",
+                                "job_id": job_id,
+                                "bytes_received": received,
+                                "bytes_total": len(image),
+                                "progress_permille": progress,
+                                "partition": partition,
+                            }
+                        )
             if progress_callback is not None:
                 await progress_callback(
                     {
@@ -872,9 +922,7 @@ class DeviceSession:
         frame = await self._request(Channel.OTA, OtaType.STATUS, b"", timeout)
         if frame.type != OtaType.STATUS or len(frame.payload) < 20:
             raise ProtocolError("unexpected OTA status response")
-        job_id, total, received, progress = struct.unpack_from(
-            "<IIIH", frame.payload
-        )
+        job_id, total, received, progress = struct.unpack_from("<IIIH", frame.payload)
         active = bool(frame.payload[14])
         label_size = frame.payload[15]
         result = struct.unpack_from("<i", frame.payload, 16)[0]

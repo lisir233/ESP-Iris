@@ -179,6 +179,8 @@ def test_ota_end_timeout_is_reconciled_with_device_job() -> None:
             )
 
         session._request = request
+        session._request_unlocked = request
+        session._request_lock = asyncio.Lock()
         result = await session.ota_update(b"x", timeout=0.01)
         assert result["completion_evidence"] == "device_job"
         assert result["job_id"] == 77
@@ -211,9 +213,63 @@ def test_ota_end_session_close_is_deferred_to_gateway_reconnect_validation() -> 
             raise ConnectionError("ESP-Iris session closed")
 
         session._request = request
+        session._request_unlocked = request
+        session._request_lock = asyncio.Lock()
         result = await session.ota_update(b"x", timeout=0.01)
         assert result["completion_evidence"] == "session_close"
         assert result["job_id"] == 78
+
+    asyncio.run(scenario())
+
+
+def test_ota_data_window_resumes_from_a_confirmed_batch_boundary() -> None:
+    async def scenario() -> None:
+        session = object.__new__(DeviceSession)
+        session._request_lock = asyncio.Lock()
+        attempts: dict[int, int] = {}
+
+        async def request(channel, type_, payload=b"", timeout=10.0):
+            del payload, timeout
+            if (channel, type_) == (Channel.OTA, OtaType.BEGIN):
+                return Frame(
+                    channel=channel,
+                    type=OtaType.BEGIN_RESPONSE,
+                    payload=struct.pack("<IIHB", 79, 4, 1, 5) + b"ota_1",
+                )
+            if (channel, type_) == (Channel.OTA, OtaType.STATUS):
+                return Frame(
+                    channel=channel,
+                    type=OtaType.STATUS,
+                    payload=struct.pack("<IIIHBBi", 79, 4, 1, 225, 1, 5, 0) + b"ota_1",
+                )
+            assert (channel, type_) == (Channel.OTA, OtaType.END)
+            return Frame(
+                channel=channel,
+                type=OtaType.END_RESPONSE,
+                payload=struct.pack("<Ii", 79, 0),
+            )
+
+        async def request_unlocked(channel, type_, payload=b"", timeout=10.0):
+            del timeout
+            assert (channel, type_) == (Channel.OTA, OtaType.DATA)
+            offset = struct.unpack_from("<I", payload)[0]
+            attempts[offset] = attempts.get(offset, 0) + 1
+            if offset == 1 and attempts[offset] == 1:
+                await asyncio.sleep(0)
+                raise TimeoutError
+            if offset > 1 and attempts[offset] == 1:
+                await asyncio.sleep(10)
+            return Frame(
+                channel=channel,
+                type=OtaType.DATA_RESPONSE,
+                payload=struct.pack("<IHH", offset + 1, (offset + 1) * 225, 0),
+            )
+
+        session._request = request
+        session._request_unlocked = request_unlocked
+        result = await session.ota_update(b"abcd", timeout=0.01)
+        assert result["job_id"] == 79
+        assert attempts == {0: 1, 1: 2, 2: 2, 3: 2}
 
     asyncio.run(scenario())
 
@@ -877,6 +933,9 @@ def test_rpc_jobs_screenshot_media_ota_and_restart() -> None:
         data_index, data_request = await wait_for_request(
             link, Channel.OTA, OtaType.DATA, ota_index + 1
         )
+        data2_index, data2_request = await wait_for_request(
+            link, Channel.OTA, OtaType.DATA, data_index + 1
+        )
         await link.incoming.put(
             encode_frame(
                 Frame(
@@ -890,9 +949,6 @@ def test_rpc_jobs_screenshot_media_ota_and_restart() -> None:
                     payload=struct.pack("<IHH", 2, 600, 0),
                 )
             )
-        )
-        data2_index, data2_request = await wait_for_request(
-            link, Channel.OTA, OtaType.DATA, data_index + 1
         )
         await link.incoming.put(
             encode_frame(
@@ -926,7 +982,15 @@ def test_rpc_jobs_screenshot_media_ota_and_restart() -> None:
             )
         )
         assert (await ota_task)["partition"] == "ota0"
+        assert [item["stage"] for item in ota_progress] == [
+            "erasing",
+            "transferring",
+            "transferring",
+            "transferring",
+            "verifying",
+        ]
         assert [item["progress_permille"] for item in ota_progress] == [
+            0,
             0,
             600,
             900,

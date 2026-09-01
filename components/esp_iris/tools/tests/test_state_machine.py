@@ -4,7 +4,6 @@ import shutil
 import subprocess
 
 import pytest
-
 from iris_gateway.state_machine import (
     OperationState,
     SessionEvent,
@@ -19,8 +18,26 @@ COMPONENT = pathlib.Path(__file__).resolve().parents[2]
 
 def test_operation_state_machine_accepts_progress_and_freezes_terminal_state() -> None:
     assert operation_transition("queued", "running") is OperationState.RUNNING
-    assert operation_transition("running", "transferring") is OperationState.TRANSFERRING
-    assert operation_transition("transferring", "transferring") is OperationState.TRANSFERRING
+    assert (
+        operation_transition("running", "waiting_recovery")
+        is OperationState.WAITING_RECOVERY
+    )
+    assert (
+        operation_transition("waiting_recovery", "recovery_connected")
+        is OperationState.RECOVERY_CONNECTED
+    )
+    assert (
+        operation_transition("recovery_connected", "preparing_ota")
+        is OperationState.PREPARING_OTA
+    )
+    assert operation_transition("preparing_ota", "erasing") is OperationState.ERASING
+    assert (
+        operation_transition("erasing", "transferring") is OperationState.TRANSFERRING
+    )
+    assert (
+        operation_transition("transferring", "transferring")
+        is OperationState.TRANSFERRING
+    )
     assert operation_transition("transferring", "succeeded") is OperationState.SUCCEEDED
     with pytest.raises(StateTransitionError):
         operation_transition("succeeded", "running")
@@ -31,7 +48,10 @@ def test_session_state_machine_rejects_ready_without_authentication() -> None:
         session_transition(SessionState.NEGOTIATING, SessionEvent.AUTHENTICATED)
         is SessionState.READY
     )
-    assert session_transition(SessionState.READY, SessionEvent.CLOSE) is SessionState.CLOSED
+    assert (
+        session_transition(SessionState.READY, SessionEvent.CLOSE)
+        is SessionState.CLOSED
+    )
     with pytest.raises(StateTransitionError):
         session_transition(SessionState.CLOSED, SessionEvent.AUTHENTICATED)
 
@@ -72,4 +92,3 @@ def test_device_c_state_machine_has_the_same_terminal_guards(tmp_path) -> None:
     assert transition(0, 1, ctypes.byref(state)) and state.value == 1
     assert transition(1, 2, ctypes.byref(state)) and state.value == 2
     assert not transition(2, 0, ctypes.byref(state))
-

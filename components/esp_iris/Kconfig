@@ -208,8 +208,12 @@ config ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH
 config ESP_IRIS_OTA_CHUNK_BYTES
     int "Maximum OTA payload bytes per request"
     depends on ESP_IRIS_OTA
-    range 256 2048
+    range 256 3968
     default 1024
+    help
+        Number of image bytes in each OTA DATA request. The upper bound keeps
+        an aligned data block plus its 4-byte offset within the protocol's
+        4000-byte payload limit.
 
 config ESP_IRIS_SYSTEM_INVENTORY
     bool "Expose read-only system Flash inventory"

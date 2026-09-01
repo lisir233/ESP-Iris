@@ -378,6 +378,12 @@ class GatewayService:
                 raise OperationOutcomeUnknown(
                     "factory recovery restart was accepted but recovery did not reconnect within 30 seconds"
                 )
+            await self.operations.progress(
+                operation_id,
+                stage="recovery_connected",
+                progress_permille=75,
+                recovery_boot_id=recovery_boot,
+            )
 
         last_device_progress = -10
 
@@ -411,6 +417,12 @@ class GatewayService:
         )
         writer_boot = recovery_boot if recovery_boot is not None else previous_boot
         try:
+            await self.operations.progress(
+                operation_id,
+                stage="preparing_ota",
+                progress_permille=90 if execution_mode == "recovery" else 0,
+                writer_boot_id=writer_boot,
+            )
             result = await self.device_hub.ota_update(
                 device_id,
                 image,

@@ -2,7 +2,6 @@ import asyncio
 from typing import Any
 
 import pytest
-
 from iris_gateway.gateway import (
     DEFAULT_OTA_VALIDATION_MODE,
     GatewayService,
@@ -301,9 +300,11 @@ def test_closed_loop_ota_waits_through_recovery_session_close() -> None:
         assert result["recovery_boot_id"] == 20
         assert result["healthy"] is True
         assert result["validation"]["mode"] == "elf_sha256"
-        assert [update["stage"] for update in operations.progress_updates[:2]] == [
+        assert [update["stage"] for update in operations.progress_updates[:4]] == [
             "entering_recovery",
             "waiting_recovery",
+            "recovery_connected",
+            "preparing_ota",
         ]
 
     asyncio.run(scenario())

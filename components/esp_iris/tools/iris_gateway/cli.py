@@ -94,6 +94,7 @@ def _recover_interrupted(store: GatewayStore) -> None:
     rows = store.db.execute(
         "SELECT operation_id, action FROM operations WHERE status IN "
         "('queued','running','entering_recovery','waiting_recovery',"
+        "'recovery_connected','preparing_ota','erasing',"
         "'preserving_evidence','validating_plan','transferring','verifying',"
         "'committing','waiting_device','reconnecting')"
     ).fetchall()
