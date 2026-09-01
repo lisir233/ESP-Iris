@@ -465,12 +465,12 @@ existing v1 vectors are never rewritten to reinterpret an existing field.
 
 ## System Update
 
-System Update is a recovery-only, authenticated multi-image transport. It is
+System Update is a recovery-only, policy-controlled multi-image transport. It is
 advertised with `CAP_SYSTEM_UPDATE` (capability bit 15) only after a product
 backend has registered. The generic ESP-Iris component never treats a target
-offset as permission to write Flash. The backend authenticates and parses the
-signed manifest, cross-checks every component descriptor, and implements the
-Flash policy.
+offset as permission to write Flash. The backend parses the manifest,
+optionally authenticates it according to product policy, cross-checks every
+component descriptor, and implements the Flash policy.
 
 The read-only inventory provider is independent. A normal or recovery image
 advertises `CAP_SYSTEM_INVENTORY` (capability bit 16) only after that provider
@@ -488,8 +488,10 @@ component_count:u8, flags:u8, reserved:u16, manifest_sha256[32],
 manifest[manifest_size], signature[signature_size]
 ```
 
-The manifest and signature are bounded by Kconfig. ESP-Iris verifies the
-manifest SHA-256; the product backend verifies the signature and policy.
+The manifest and optional signature are bounded by Kconfig. A zero
+`signature_size` represents an unsigned update. ESP-Iris always verifies the
+manifest SHA-256; the product backend decides whether a signature is required
+and enforces the product Flash policy.
 BEGIN_RESPONSE (`0x02`) is `operation_id[16], job_id:u32, chunk_max:u16,
 component_count:u8, flags:u8`.
 

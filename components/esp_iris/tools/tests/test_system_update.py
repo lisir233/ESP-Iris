@@ -107,6 +107,46 @@ def test_signed_bundle_round_trip_and_component_hashes(tmp_path) -> None:
     assert bundle.as_dict()["signature_verified"] is True
 
 
+def test_unsigned_bundle_round_trip_requires_no_key(tmp_path) -> None:
+    partition = b"partition" + b"\xff" * 55
+    application = _application_image()
+    (tmp_path / "partition-table.bin").write_bytes(partition)
+    (tmp_path / "ota_0.bin").write_bytes(application)
+    manifest = _manifest("00" * 32)
+    manifest.pop("signature")
+    output = build_system_update_bundle(
+        tmp_path / "unsigned.irisfw",
+        manifest,
+        tmp_path,
+    )
+    bundle = load_system_update_bundle(output)
+    with zipfile.ZipFile(output) as archive:
+        assert "manifest.sig" not in archive.namelist()
+        unsigned_manifest = json.loads(archive.read("manifest.json"))
+    schema = json.loads(
+        (PROTOCOL_DIR / "system_update_manifest.schema.json").read_text()
+    )
+    validate(unsigned_manifest, schema)
+    assert bundle.signature == b""
+    assert bundle.key_id is None
+    assert bundle.as_dict()["signature_verified"] is False
+
+
+def test_unsigned_bundle_is_rejected_when_trust_key_is_configured(tmp_path) -> None:
+    _, public = _keys()
+    (tmp_path / "partition-table.bin").write_bytes(b"partition")
+    (tmp_path / "ota_0.bin").write_bytes(_application_image())
+    manifest = _manifest("00" * 32)
+    manifest.pop("signature")
+    output = build_system_update_bundle(
+        tmp_path / "unsigned.irisfw",
+        manifest,
+        tmp_path,
+    )
+    with pytest.raises(ValueError, match="rejected by trust policy"):
+        load_system_update_bundle(output, trusted_public_key=public)
+
+
 def test_bundle_rejects_untrusted_signature(tmp_path) -> None:
     private, _ = _keys()
     _, other_public = _keys()
@@ -199,9 +239,10 @@ def _bundle_for_session() -> SystemUpdateBundle:
     return SystemUpdateBundle(
         manifest={"schema": SYSTEM_UPDATE_SCHEMA},
         manifest_bytes=manifest,
-        signature=b"signature",
+        signature=b"",
         manifest_sha256=hashlib.sha256(manifest).digest(),
-        key_id="test",
+        key_id=None,
+        signature_verified=False,
         chip_id=0x20,
         flash_size=16 * 1024 * 1024,
         source_layout_sha256=("11" * 32,),
@@ -243,6 +284,7 @@ def test_session_system_update_encodes_bounded_component_sequence() -> None:
             if calls == 1:
                 assert type_ == SystemUpdateType.BEGIN
                 assert payload[:16] == operation_id
+                assert struct.unpack_from("<H", payload, 18)[0] == 0
                 return Frame(
                     channel=channel,
                     type=SystemUpdateType.BEGIN_RESPONSE,

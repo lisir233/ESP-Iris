@@ -19,7 +19,7 @@ static esp_err_t prepare(
 {
     fixture_state_t *state = user_ctx;
     if (manifest == NULL || state == NULL || manifest->manifest_size == 0 ||
-        manifest->signature_size == 0 || manifest->component_count == 0) {
+        manifest->component_count == 0) {
         return ESP_ERR_INVALID_ARG;
     }
     memset(&state->active, 0, sizeof(state->active));

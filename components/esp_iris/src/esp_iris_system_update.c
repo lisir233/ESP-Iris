@@ -246,7 +246,6 @@ static bool handle_begin(iris_runtime_t *runtime,
     if (!operation_id_valid(payload) || iris_get_le16(payload + 22) != 0 ||
         manifest_size == 0 ||
         manifest_size > CONFIG_ESP_IRIS_SYSTEM_UPDATE_MANIFEST_BYTES ||
-        signature_size == 0 ||
         signature_size > CONFIG_ESP_IRIS_SYSTEM_UPDATE_SIGNATURE_BYTES ||
         component_count == 0 ||
         component_count > CONFIG_ESP_IRIS_SYSTEM_UPDATE_MAX_COMPONENTS ||

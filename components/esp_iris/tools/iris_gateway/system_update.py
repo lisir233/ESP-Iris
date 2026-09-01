@@ -1,8 +1,9 @@
-"""Authenticated ESP-Iris multi-image system-update bundles.
+"""ESP-Iris multi-image system-update bundles.
 
-The signed manifest is the authority for both the Gateway and the product
-backend.  Archive metadata, member names and component bytes are treated as
-untrusted input and are fully bounded before any device operation begins.
+The manifest is the update plan for both the Gateway and the product backend.
+Bundles may be signed or explicitly unsigned. Archive metadata, member names
+and component bytes are treated as untrusted input and are fully bounded
+before any device operation begins.
 """
 
 from __future__ import annotations
@@ -81,7 +82,8 @@ class SystemUpdateBundle:
     manifest_bytes: bytes
     signature: bytes
     manifest_sha256: bytes
-    key_id: str
+    key_id: str | None
+    signature_verified: bool
     chip_id: int
     flash_size: int
     source_layout_sha256: tuple[str, ...]
@@ -98,7 +100,7 @@ class SystemUpdateBundle:
             "source_layout_sha256": list(self.source_layout_sha256),
             "target_layout_sha256": self.target_layout_sha256,
             "components": [item.as_dict() for item in self.components],
-            "signature_verified": True,
+            "signature_verified": self.signature_verified,
         }
 
 
@@ -216,9 +218,13 @@ def _archive_members(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
 def load_system_update_bundle(
     source: str | pathlib.Path | bytes,
     *,
-    trusted_public_key: bytes,
+    trusted_public_key: bytes | None = None,
 ) -> SystemUpdateBundle:
-    """Load and authenticate a bounded ``.irisfw`` archive."""
+    """Load a bounded signed or explicitly unsigned ``.irisfw`` archive.
+
+    Supplying ``trusted_public_key`` requires a signed bundle and verifies it.
+    Without a trust key, only unsigned bundles are accepted.
+    """
 
     if isinstance(source, bytes):
         import io
@@ -231,25 +237,43 @@ def load_system_update_bundle(
         if not path.is_file() or path.stat().st_size > MAX_BUNDLE_BYTES:
             raise ValueError("system-update archive is missing or too large")
         stream = path
-    public_key = _load_public_key(trusted_public_key)
+    public_key = (
+        _load_public_key(trusted_public_key)
+        if trusted_public_key is not None
+        else None
+    )
     try:
         archive_context = zipfile.ZipFile(stream)
     except (OSError, zipfile.BadZipFile) as exc:
         raise ValueError("system-update bundle is not a valid ZIP archive") from exc
     with archive_context as archive:
         members = _archive_members(archive)
-        if MANIFEST_NAME not in members or SIGNATURE_NAME not in members:
-            raise ValueError("system-update bundle requires manifest.json and manifest.sig")
+        if MANIFEST_NAME not in members:
+            raise ValueError("system-update bundle requires manifest.json")
         manifest_bytes = archive.read(members[MANIFEST_NAME])
-        signature = archive.read(members[SIGNATURE_NAME])
+        signature = (
+            archive.read(members[SIGNATURE_NAME])
+            if SIGNATURE_NAME in members
+            else b""
+        )
         if not 1 <= len(manifest_bytes) <= MAX_MANIFEST_BYTES:
             raise ValueError("system-update manifest exceeds the device bound")
-        if not 1 <= len(signature) <= MAX_SIGNATURE_BYTES:
+        if len(signature) > MAX_SIGNATURE_BYTES:
             raise ValueError("system-update signature has an invalid size")
-        try:
-            public_key.verify(signature, manifest_bytes, ec.ECDSA(hashes.SHA256()))
-        except InvalidSignature as exc:
-            raise ValueError("system-update manifest signature is invalid") from exc
+        if signature and public_key is None:
+            raise ValueError("signed system-update bundle requires a trust key")
+        if not signature and public_key is not None:
+            raise ValueError("unsigned system-update bundle rejected by trust policy")
+        if signature:
+            try:
+                assert public_key is not None
+                public_key.verify(
+                    signature, manifest_bytes, ec.ECDSA(hashes.SHA256())
+                )
+            except InvalidSignature as exc:
+                raise ValueError(
+                    "system-update manifest signature is invalid"
+                ) from exc
         try:
             document = json.loads(
                 manifest_bytes.decode("utf-8"), object_pairs_hook=_strict_object
@@ -262,13 +286,12 @@ def load_system_update_bundle(
             "manifest",
             required={
                 "schema",
-                "signature",
                 "target",
                 "source_layout_sha256",
                 "target_layout_sha256",
                 "components",
             },
-            optional={"release", "minimum_recovery_version"},
+            optional={"release", "minimum_recovery_version", "signature"},
         )
         if manifest.get("schema") != SYSTEM_UPDATE_SCHEMA:
             raise ValueError("unsupported system-update manifest schema")
@@ -279,17 +302,24 @@ def load_system_update_bundle(
                 or not 1 <= len(optional_value) <= 64
             ):
                 raise TypeError(f"{optional_text} must be a bounded string")
-        signature_info = _mapping(manifest.get("signature"), "signature")
-        _require_fields(
-            signature_info,
-            "signature",
-            required={"algorithm", "key_id"},
-        )
-        if signature_info.get("algorithm") != "ecdsa-p256-sha256":
-            raise ValueError("unsupported system-update signature algorithm")
-        key_id = signature_info.get("key_id")
-        if not isinstance(key_id, str) or not 1 <= len(key_id) <= 64:
-            raise ValueError("system-update signature key_id is invalid")
+        signature_value = manifest.get("signature")
+        if signature:
+            signature_info = _mapping(signature_value, "signature")
+            _require_fields(
+                signature_info,
+                "signature",
+                required={"algorithm", "key_id"},
+            )
+            if signature_info.get("algorithm") != "ecdsa-p256-sha256":
+                raise ValueError("unsupported system-update signature algorithm")
+            key_id_value = signature_info.get("key_id")
+            if not isinstance(key_id_value, str) or not 1 <= len(key_id_value) <= 64:
+                raise ValueError("system-update signature key_id is invalid")
+            key_id: str | None = key_id_value
+        else:
+            if signature_value is not None:
+                raise ValueError("unsigned system-update manifest must omit signature")
+            key_id = None
         target = _mapping(manifest.get("target"), "target")
         _require_fields(
             target, "target", required={"chip_id", "flash_size"}
@@ -322,7 +352,9 @@ def load_system_update_bundle(
         components: list[SystemUpdateComponent] = []
         identifiers: set[int] = set()
         singleton_kinds: set[SystemUpdateComponentKind] = set()
-        filenames = {MANIFEST_NAME, SIGNATURE_NAME}
+        filenames = {MANIFEST_NAME}
+        if signature:
+            filenames.add(SIGNATURE_NAME)
         for index, value in enumerate(component_values):
             item = _mapping(value, f"components[{index}]")
             _require_fields(
@@ -442,6 +474,7 @@ def load_system_update_bundle(
             signature=signature,
             manifest_sha256=hashlib.sha256(manifest_bytes).digest(),
             key_id=key_id,
+            signature_verified=bool(signature),
             chip_id=chip_id,
             flash_size=flash_size,
             source_layout_sha256=source_layouts,
@@ -455,15 +488,15 @@ def build_system_update_bundle(
     manifest: Mapping[str, Any],
     component_root: str | pathlib.Path,
     *,
-    signing_private_key: bytes,
+    signing_private_key: bytes | None = None,
     signing_key_password: bytes | None = None,
 ) -> pathlib.Path:
-    """Create a deterministic signed bundle from a manifest template.
+    """Create a deterministic signed or unsigned bundle from a template.
 
     Component ``size`` and ``sha256`` fields are replaced from their source
     files before the canonical JSON manifest is signed. Partition-table and
     bootloader inputs are padded with erased bytes to their complete protected
-    Flash ranges so signed digests match post-reboot inventory.
+    Flash ranges so component digests match post-reboot inventory.
     """
 
     document = json.loads(json.dumps(manifest))
@@ -534,8 +567,19 @@ def build_system_update_bundle(
     ).encode("utf-8")
     if len(manifest_bytes) > MAX_MANIFEST_BYTES:
         raise ValueError("canonical system-update manifest is too large")
-    key = _load_private_key(signing_private_key, signing_key_password)
-    signature = key.sign(manifest_bytes, ec.ECDSA(hashes.SHA256()))
+    signature_value = mapping.get("signature")
+    if signing_private_key is None:
+        if signing_key_password is not None:
+            raise ValueError("signing key password requires a signing key")
+        if signature_value is not None:
+            raise ValueError("unsigned system-update manifest must omit signature")
+        key = None
+        signature = b""
+    else:
+        if signature_value is None:
+            raise ValueError("signed system-update manifest requires signature metadata")
+        key = _load_private_key(signing_private_key, signing_key_password)
+        signature = key.sign(manifest_bytes, ec.ECDSA(hashes.SHA256()))
     output = pathlib.Path(destination)
     output.parent.mkdir(parents=True, exist_ok=True)
     timestamp = (1980, 1, 1, 0, 0, 0)
@@ -547,18 +591,22 @@ def build_system_update_bundle(
         with zipfile.ZipFile(
             temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
         ) as archive:
-            for name, data in (
-                (MANIFEST_NAME, manifest_bytes),
-                (SIGNATURE_NAME, signature),
-                *sorted(component_data.items()),
-            ):
+            members = [(MANIFEST_NAME, manifest_bytes)]
+            if signature:
+                members.append((SIGNATURE_NAME, signature))
+            members.extend(sorted(component_data.items()))
+            for name, data in members:
                 info = zipfile.ZipInfo(name, timestamp)
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = 0o100644 << 16
                 archive.writestr(info, data)
-        public_pem = key.public_key().public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
+        public_pem = (
+            key.public_key().public_bytes(
+                serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            if key is not None
+            else None
         )
         load_system_update_bundle(temporary, trusted_public_key=public_pem)
         temporary.replace(output)

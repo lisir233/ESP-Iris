@@ -60,10 +60,11 @@ typedef struct {
     esp_err_t result;
 } esp_iris_system_update_status_t;
 
-/* The backend is the product security and Flash-policy boundary. ESP-Iris
- * never interprets target offsets as permission to write Flash. prepare()
- * must authenticate and parse the manifest, and every component callback
- * must verify that the descriptor agrees with the authenticated plan.
+/* The backend is the product authorization and Flash-policy boundary.
+ * ESP-Iris never interprets target offsets as permission to write Flash.
+ * prepare() must parse and authorize the manifest, optionally authenticating
+ * it when the product requires signed updates. Every component callback must
+ * verify that the descriptor agrees with the authorized plan.
  *
  * Sensitive images such as the bootloader and partition table should be held
  * in internal RAM by the backend and written only from commit(). commit()

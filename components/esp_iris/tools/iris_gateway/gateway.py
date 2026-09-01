@@ -1262,16 +1262,12 @@ def create_app(service: GatewayService) -> web.Application:
         blocked = service.require_develop()
         if blocked:
             return blocked
-        if service.system_update_trust_key is None:
-            raise RuntimeError(
-                "Gateway has no configured system-update trust key"
-            )
         if request.content_type not in {
             "application/zip",
             "application/octet-stream",
             "application/vnd.esp-iris.system-update+zip",
         }:
-            raise ValueError("system update requires a signed .irisfw archive")
+            raise ValueError("system update requires an .irisfw archive")
         device_id = service.resolve_device(request.match_info["device_id"])
         archive = await request.read()
         bundle = load_system_update_bundle(

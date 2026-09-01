@@ -671,13 +671,17 @@ def _doctor(args: argparse.Namespace) -> int:
 def _bundle(args: argparse.Namespace) -> int:
     if args.bundle_command == "build":
         manifest_path = pathlib.Path(args.manifest).expanduser().resolve()
-        signing_key_path = pathlib.Path(args.signing_key).expanduser().resolve()
+        signing_key = (
+            pathlib.Path(args.signing_key).expanduser().resolve().read_bytes()
+            if args.signing_key
+            else None
+        )
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         output = build_system_update_bundle(
             pathlib.Path(args.output).expanduser().resolve(),
             manifest,
             pathlib.Path(args.component_root).expanduser().resolve(),
-            signing_private_key=signing_key_path.read_bytes(),
+            signing_private_key=signing_key,
             signing_key_password=(
                 pathlib.Path(args.signing_key_password_file)
                 .expanduser()
@@ -690,7 +694,11 @@ def _bundle(args: argparse.Namespace) -> int:
         )
         _output({"path": str(output), "bytes": output.stat().st_size}, args.json)
         return 0
-    trust_key = pathlib.Path(args.trust_key).expanduser().resolve().read_bytes()
+    trust_key = (
+        pathlib.Path(args.trust_key).expanduser().resolve().read_bytes()
+        if args.trust_key
+        else None
+    )
     bundle = load_system_update_bundle(
         pathlib.Path(args.bundle).expanduser().resolve(),
         trusted_public_key=trust_key,
@@ -847,14 +855,17 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("value", nargs="?", choices=("develop", "observe"))
 
     bundle = subparsers.add_parser(
-        "bundle", help="build or inspect signed system-update bundles"
+        "bundle", help="build or inspect system-update bundles"
     )
     bundle.add_argument("--json", action="store_true")
     bundle_commands = bundle.add_subparsers(dest="bundle_command", required=True)
     bundle_build = bundle_commands.add_parser("build")
     bundle_build.add_argument("manifest")
     bundle_build.add_argument("--component-root", required=True)
-    bundle_build.add_argument("--signing-key", required=True)
+    bundle_build.add_argument(
+        "--signing-key",
+        help="optional PEM ECDSA P-256 signing key; omit for unsigned bundles",
+    )
     bundle_build.add_argument(
         "--signing-key-password-file",
         help="file containing the encrypted PEM password (never pass it as an argument)",
@@ -862,7 +873,10 @@ def build_parser() -> argparse.ArgumentParser:
     bundle_build.add_argument("--output", required=True)
     bundle_inspect = bundle_commands.add_parser("inspect")
     bundle_inspect.add_argument("bundle")
-    bundle_inspect.add_argument("--trust-key", required=True)
+    bundle_inspect.add_argument(
+        "--trust-key",
+        help="optional PEM ECDSA P-256 trust key; omit for unsigned bundles",
+    )
 
     doctor = subparsers.add_parser("doctor", help="cross-platform environment and USB diagnostics")
     doctor.add_argument("--json", action="store_true")

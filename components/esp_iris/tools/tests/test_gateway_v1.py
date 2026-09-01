@@ -7,8 +7,6 @@ from unittest.mock import Mock
 
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 
 from iris_gateway.cli import _client_ssl, _listen_is_loopback, build_parser
 from iris_gateway.demo import DemoHub
@@ -91,27 +89,13 @@ def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) 
     asyncio.run(scenario())
 
 
-def test_system_update_requires_trust_and_closes_actual_inventory_loop(tmp_path) -> None:
+def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
     async def scenario() -> None:
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        private_pem = private_key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-        public_pem = private_key.public_key().public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
         components = tmp_path / "components"
         components.mkdir()
         (components / "partition-table.bin").write_bytes(b"table-v2")
         manifest = {
             "schema": SYSTEM_UPDATE_SCHEMA,
-            "signature": {
-                "algorithm": "ecdsa-p256-sha256",
-                "key_id": "gateway-test",
-            },
             "target": {"chip_id": 0x20, "flash_size": 16 * 1024 * 1024},
             "source_layout_sha256": ["00" * 32],
             "target_layout_sha256": "00" * 32,
@@ -128,14 +112,12 @@ def test_system_update_requires_trust_and_closes_actual_inventory_loop(tmp_path)
             tmp_path / "release.irisfw",
             manifest,
             components,
-            signing_private_key=private_pem,
         )
         store = GatewayStore(tmp_path / "state")
         service = GatewayService(
             store,
             instance_id="test",
             demo=True,
-            system_update_trust_key=public_pem,
         )
         hub = DemoHub(service.on_device_event)
         service.attach_hub(hub)
@@ -153,6 +135,7 @@ def test_system_update_requires_trust_and_closes_actual_inventory_loop(tmp_path)
                 },
             )
             assert accepted.status == 202
+            assert (await accepted.json())["bundle"]["signature_verified"] is False
             operation = None
             for _ in range(200):
                 response = await client.get(f"/v1/operations/{operation_id}")

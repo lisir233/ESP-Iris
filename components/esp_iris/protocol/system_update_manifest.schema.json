@@ -6,7 +6,6 @@
   "additionalProperties": false,
   "required": [
     "schema",
-    "signature",
     "target",
     "source_layout_sha256",
     "target_layout_sha256",
@@ -27,6 +26,7 @@
       "maxLength": 64
     },
     "signature": {
+      "description": "Present only for signed bundles.",
       "type": "object",
       "additionalProperties": false,
       "required": ["algorithm", "key_id"],
