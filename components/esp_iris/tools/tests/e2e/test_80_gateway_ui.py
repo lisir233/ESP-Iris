@@ -157,7 +157,11 @@ def test_cli_tls_auth_websocket_workbench_and_final_smoke(
         status, started, _ = agent.request(
             "POST",
             f"/v1/devices/{device_id}/rpc/raw",
-            json_body={"service_id": 1, "method_id": 2, "payload_hex": ""},
+            json_body={
+                "service_id": 1,
+                "method_id": 2,
+                "payload_hex": "00008813",
+            },
         )
         assert status == 200
         job_id = struct.unpack(

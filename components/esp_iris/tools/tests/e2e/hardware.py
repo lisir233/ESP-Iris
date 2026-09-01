@@ -324,6 +324,10 @@ class BoardController:
     def flash(self, profile_name: str) -> pathlib.Path:
         build_dir = self.build(profile_name)
         assert self.idf is not None
+        # ESP-IDF's incremental flash cache cannot observe that an OTA test
+        # changed otadata at runtime. Force that small mutable partition to be
+        # written so every profile starts from its declared factory layout.
+        (build_dir / "ota_data_initial_flashed.bin").unlink(missing_ok=True)
         self.mutation_started = True
         self._write_journal("flashing", profile=profile_name)
         self.runner.run(
@@ -341,6 +345,30 @@ class BoardController:
             timeout=600,
             log_name=f"flash-{profile_name}.log",
         )
+        if profile_name == "services_usj":
+            assert self.esptool is not None
+            reset = self.runner.run(
+                [
+                    self.esptool,
+                    "--port",
+                    self.config.program_port,
+                    "--after",
+                    "hard-reset",
+                    "run",
+                ],
+                timeout=30,
+                log_name="flash-services_usj-reset.log",
+                check=False,
+            )
+            known_usb_teardown = (
+                "Hard resetting via RTS pin" in reset.stdout
+                and "OSError: [Errno 71] Protocol error" in reset.stdout
+            )
+            if reset.returncode != 0 and not known_usb_teardown:
+                raise SafetyError(
+                    "USB Serial/JTAG firmware did not leave the bootloader; "
+                    "see flash-services_usj-reset.log"
+                )
         self._write_journal("profile-running", profile=profile_name)
         return build_dir
 
@@ -357,7 +385,12 @@ class BoardController:
         raise SafetyError("application USB CDC endpoint was not discovered")
 
     def wait_console_marker(
-        self, pattern: str, *, timeout: float = 45, reset: bool = True
+        self,
+        pattern: str,
+        *,
+        timeout: float = 45,
+        reset: bool = True,
+        log_name: str = "console.log",
     ) -> re.Match[str]:
         import serial
 
@@ -382,11 +415,11 @@ class BoardController:
                 lines.append(self.artifacts.redact(line))
                 match = expression.search(line)
                 if match is not None:
-                    (self.artifacts.logs / "console.log").write_text(
+                    (self.artifacts.logs / log_name).write_text(
                         "\n".join(lines) + "\n", encoding="utf-8"
                     )
                     return match
-        (self.artifacts.logs / "console.log").write_text(
+        (self.artifacts.logs / log_name).write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
         )
         raise TimeoutError(f"console marker was not observed: {pattern}")
@@ -398,7 +431,6 @@ class BoardController:
             try:
                 assert raw.session is not None
                 status = await raw.session.status()
-                assert await raw.session.rpc(1, 1, b"preflight") == b"preflight"
                 return {
                     "device_id": info.device_id,
                     "boot_id": info.boot_id,

@@ -240,11 +240,20 @@ static void recovery_task(void *arg)
 #endif
 
 #if !CONFIG_ESP_IRIS_CRASH_EXAMPLE_RECOVERY
+esp_err_t esp_iris_platform_mark_healthy(void)
+{
+    return esp_ota_mark_app_valid_cancel_rollback();
+}
+
 static void crash_or_stabilize_task(void *arg)
 {
     (void)arg;
     crash_state_t state = state_read();
     if (!state.injection_enabled) {
+        ESP_ERROR_CHECK(esp_iris_mark_healthy());
+#if !CONFIG_ESP_IRIS_CRASH_EXAMPLE_AUTO_CRASH
+        esp_rom_printf("IRIS_CRASH_STABLE_HEALTHY\n");
+#endif
         vTaskDelay(pdMS_TO_TICKS(
             CONFIG_ESP_IRIS_CRASH_EXAMPLE_STABLE_RESET_MS));
         state = state_read();
@@ -274,6 +283,8 @@ static void crash_or_stabilize_task(void *arg)
     fflush(stdout);
     abort();
 #else
+    ESP_ERROR_CHECK(esp_iris_mark_healthy());
+    esp_rom_printf("IRIS_CRASH_STABLE_HEALTHY\n");
     vTaskDelete(NULL);
 #endif
 }

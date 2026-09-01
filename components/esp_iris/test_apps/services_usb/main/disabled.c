@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static esp_err_t disabled_rpc(const esp_iris_rpc_request_t *request,
                               uint8_t *response, size_t response_capacity,
@@ -100,9 +102,12 @@ void app_main(void)
     }
     safe = safe && !status.started && status.lifecycle == 0 &&
            token[0] == '\0' && device_id[0] == '\0';
-    printf("IRIS_DISABLED_STATE schema=1 safe=%u calls=%u started=%u\n",
-           safe ? 1U : 0U,
-           (unsigned)(sizeof(results) / sizeof(results[0])),
-           esp_iris_is_started() ? 1U : 0U);
-    fflush(stdout);
+    for (size_t attempt = 0; attempt < 20; ++attempt) {
+        printf("IRIS_DISABLED_STATE schema=1 safe=%u calls=%u started=%u\n",
+               safe ? 1U : 0U,
+               (unsigned)(sizeof(results) / sizeof(results[0])),
+               esp_iris_is_started() ? 1U : 0U);
+        fflush(stdout);
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
 }

@@ -45,6 +45,8 @@ typedef struct {
     void (*stop)(struct iris_runtime *runtime, iris_transport_state_t *state);
     iris_link_event_t (*poll)(struct iris_runtime *runtime,
                               iris_transport_state_t *state);
+    void (*disconnect)(struct iris_runtime *runtime,
+                       iris_transport_state_t *state);
     int (*read)(struct iris_runtime *runtime, iris_transport_state_t *state,
                 uint8_t *buffer, size_t capacity);
     int (*write)(struct iris_runtime *runtime, iris_transport_state_t *state,
@@ -104,6 +106,7 @@ typedef struct iris_runtime {
     uint8_t rx_wire[ESP_IRIS_MAX_WIRE_FRAME_SIZE];
     size_t rx_wire_length;
     bool rx_discarding;
+    bool disconnect_after_tx;
 
     uint8_t tx_wire[ESP_IRIS_MAX_WIRE_FRAME_SIZE];
     size_t tx_wire_length;
@@ -208,6 +211,7 @@ int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
 esp_iris_transport_kind_t iris_transport_kind(void);
 const char *iris_transport_name(void);
 void iris_transport_commit(iris_runtime_t *runtime);
+void iris_transport_disconnect(iris_runtime_t *runtime);
 
 #if CONFIG_ESP_IRIS_TRANSPORT_USB
 extern const iris_transport_ops_t g_iris_usb_transport_ops;

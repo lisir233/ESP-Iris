@@ -80,7 +80,13 @@ class RawIrisSession:
 
     async def close(self) -> None:
         if self.session is not None:
-            await self.session.close()
+            with contextlib.suppress(
+                ConnectionError,
+                OSError,
+                ProtocolError,
+                RuntimeError,
+            ):
+                await self.session.close()
         if self.task is not None:
             self.task.cancel()
             with contextlib.suppress(

@@ -131,27 +131,18 @@ static esp_err_t ensure_initial_pairing_token(void)
     if (CONFIG_ESP_IRIS_TEST_PAIRING_TOKEN[0] == '\0') {
         return ESP_ERR_INVALID_STATE;
     }
+    const bool rotated = test_nvs_get_u8("pair_next") != 0;
+    const char *source = rotated
+        ? CONFIG_ESP_IRIS_TEST_NEXT_PAIRING_TOKEN
+        : CONFIG_ESP_IRIS_TEST_PAIRING_TOKEN;
+    if (source[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
     char configured_token[65] = {0};
-    strlcpy(configured_token, CONFIG_ESP_IRIS_TEST_PAIRING_TOKEN,
+    strlcpy(configured_token, source,
             sizeof(configured_token));
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("esp_iris", NVS_READONLY, &handle);
-    if (err == ESP_OK) {
-        uint8_t token[32];
-        size_t size = sizeof(token);
-        err = nvs_get_blob(handle, "pair_token", token, &size);
-        memset(token, 0, sizeof(token));
-        nvs_close(handle);
-        if (err == ESP_OK && size == 32) {
-            return ESP_OK;
-        }
-        if (err == ESP_OK) {
-            err = ESP_ERR_INVALID_SIZE;
-        }
-    }
-    if (err != ESP_ERR_NVS_NOT_FOUND && err != ESP_ERR_INVALID_SIZE) {
-        return err;
-    }
+    /* This is a private HIL fixture. Each run supplies a fresh token, so an
+     * older token restored with the board NVS must not override the profile. */
     return esp_iris_pairing_token_set(configured_token);
 }
 
@@ -295,7 +286,11 @@ static esp_err_t rotate_token_rpc(const esp_iris_rpc_request_t *request,
     char next_token[65] = {0};
     strlcpy(next_token, CONFIG_ESP_IRIS_TEST_NEXT_PAIRING_TOKEN,
             sizeof(next_token));
-    return esp_iris_pairing_token_set(next_token);
+    esp_err_t err = esp_iris_pairing_token_set(next_token);
+    if (err == ESP_OK) {
+        err = test_nvs_set_u8("pair_next", 1);
+    }
+    return err;
 }
 
 static esp_err_t healthy_rpc(const esp_iris_rpc_request_t *request,

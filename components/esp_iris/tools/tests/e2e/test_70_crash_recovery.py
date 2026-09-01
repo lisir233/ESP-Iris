@@ -33,6 +33,21 @@ def _wait_status(api, device_id: str, predicate, timeout: float = 45) -> dict:
     raise TimeoutError(f"device status did not converge; last={last}")
 
 
+def _wait_crash_report(api, device_id: str, predicate, timeout: float = 45) -> dict:
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        status, value, _ = api.request(
+            "GET", f"/v1/devices/{device_id}/crashes"
+        )
+        if status == 200 and value.get("reports"):
+            last = value["reports"][0]
+            if predicate(last):
+                return last
+        time.sleep(0.25)
+    raise TimeoutError(f"crash report did not converge; last={last}")
+
+
 def _rpc(api, device_id: str, method: int) -> None:
     status, value, _ = api.request(
         "POST",
@@ -73,29 +88,39 @@ def test_real_crash_returns_to_factory_preserves_coredump_retry_and_resume(
                 str(map_file),
                 "--execution-mode",
                 "recovery",
-                "--wait",
-                "--interval",
-                "0.1",
             ],
             log_name="crash-application-install.log",
         )
-        assert installed["operation"]["status"] == "succeeded"
+        assert installed["operation"]["status"] in {"queued", "running"}
 
         recovered = _wait_status(
             api,
             device_id,
             lambda value: value.get("firmware_mode") == "recovery"
-            and value.get("boot_id") != factory_boot
-            and value.get("previous_boot_crash") is True,
+            and value.get("boot_id") != factory_boot,
             timeout=60,
         )
         assert recovered["device_id"] == device_id
 
-        status, reports, _ = api.request(
-            "GET", f"/v1/devices/{device_id}/crashes"
+    with GatewayProcess(
+        iris_artifacts,
+        endpoint_kind="discover_usb",
+        endpoint="",
+        name="crash-recovery",
+    ) as gateway:
+        api = gateway.start()
+        recovered = _wait_status(
+            api,
+            device_id,
+            lambda value: value.get("firmware_mode") == "recovery",
         )
-        assert status == 200
-        report = reports["reports"][0]
+
+        report = _wait_crash_report(
+            api,
+            device_id,
+            lambda value: value.get("previous_boot_crash") is True
+            and value.get("core_dump_valid") is True,
+        )
         assert report["previous_boot_crash"] is True
         assert report["core_dump_present"] is True
         assert report["core_dump_valid"] is True
@@ -118,7 +143,6 @@ def test_real_crash_returns_to_factory_preserves_coredump_retry_and_resume(
             api,
             device_id,
             lambda value: value.get("firmware_mode") == "recovery"
-            and value.get("previous_boot_crash") is True
             and value.get("boot_id") != recovered["boot_id"],
             timeout=60,
         )
@@ -131,7 +155,12 @@ def test_real_crash_returns_to_factory_preserves_coredump_retry_and_resume(
             lambda value: value.get("firmware_mode") == "normal"
             and value.get("boot_id") != retried["boot_id"],
         )
-        assert resumed["previous_boot_crash"] is False
+        resumed_report = _wait_crash_report(
+            api,
+            device_id,
+            lambda value: value.get("boot_id") == resumed["boot_id"],
+        )
+        assert resumed_report["previous_boot_crash"] is False
         time.sleep(4)
         assert _wait_status(
             api, device_id, lambda value: value.get("boot_id") == resumed["boot_id"]

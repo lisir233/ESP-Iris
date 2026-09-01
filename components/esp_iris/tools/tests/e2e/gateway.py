@@ -214,11 +214,30 @@ class GatewayProcess:
             context.verify_mode = ssl.CERT_NONE
         api = GatewayApi(self.base_url, self.artifacts, ssl_context=context)
         try:
-            api.wait_healthy()
+            deadline = time.monotonic() + 30
+            last_error: Exception | None = None
+            while time.monotonic() < deadline:
+                if self.process.poll() is not None:
+                    self._log.flush()
+                    output = log_path.read_text(encoding="utf-8", errors="replace")
+                    detail = output.strip().splitlines()[-1] if output.strip() else ""
+                    raise RuntimeError(
+                        f"Gateway exited before becoming healthy "
+                        f"({self.process.returncode}): {detail}"
+                    )
+                try:
+                    status, payload, _ = api.request(
+                        "GET", "/v1/health", timeout=1
+                    )
+                    if status == 200 and isinstance(payload, dict):
+                        return api
+                except (OSError, ValueError) as exc:
+                    last_error = exc
+                time.sleep(0.1)
+            raise TimeoutError("Gateway did not become healthy") from last_error
         except Exception:
             self.stop()
             raise
-        return api
 
     def stop(self) -> None:
         if self.process is not None and self.process.poll() is None:
@@ -307,10 +326,17 @@ class PlaywrightRunner:
         self.runner = runner
 
     def run_hardware(self, base_url: str, device_id: str) -> None:
+        self.runner.run(
+            ["npm", "run", "build"],
+            cwd=TOOLS / "frontend",
+            timeout=300,
+            log_name="frontend-build-hardware.log",
+        )
         environment = os.environ.copy()
         environment.update(
             {
                 "ESP_IRIS_E2E_BASE_URL": base_url,
+                "ESP_IRIS_TEST_URL": base_url,
                 "ESP_IRIS_E2E_DEVICE_ID": device_id,
                 "ESP_IRIS_E2E_SCREENSHOT": str(
                     self.artifacts.root / "workbench-hardware.png"

@@ -91,6 +91,13 @@ static void tcp_stop(iris_runtime_t *runtime, iris_transport_state_t *state)
     state->reported_link_up = false;
 }
 
+static void tcp_disconnect(iris_runtime_t *runtime,
+                           iris_transport_state_t *state)
+{
+    (void)runtime;
+    close_client(state);
+}
+
 static iris_link_event_t tcp_transport_poll(iris_runtime_t *runtime,
                                             iris_transport_state_t *state)
 {
@@ -174,6 +181,7 @@ const iris_transport_ops_t g_iris_tcp_transport_ops = {
     .start = tcp_start,
     .stop = tcp_stop,
     .poll = tcp_transport_poll,
+    .disconnect = tcp_disconnect,
     .read = tcp_read,
     .write = tcp_transport_write,
 };

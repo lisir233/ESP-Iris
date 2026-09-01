@@ -224,3 +224,13 @@ void iris_transport_commit(iris_runtime_t *runtime)
     runtime->transport.claim_deadline_us = 0;
     stop_losers(runtime);
 }
+
+void iris_transport_disconnect(iris_runtime_t *runtime)
+{
+    if (runtime == NULL || runtime->transport.active_ops == NULL ||
+            runtime->transport.active_ops->disconnect == NULL) {
+        return;
+    }
+    runtime->transport.active_ops->disconnect(
+        runtime, runtime->transport.active_state);
+}

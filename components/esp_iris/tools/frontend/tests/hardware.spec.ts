@@ -6,8 +6,17 @@ const deviceId = process.env.ESP_IRIS_E2E_DEVICE_ID;
 test("real Gateway drives the hardware workbench", async ({ page }) => {
   test.skip(!baseURL || !deviceId, "requires the explicit local HIL runner");
   const browserErrors: string[] = [];
+  const apiErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("response", async (response) => {
+    const url = new URL(response.url());
+    if (!url.pathname.startsWith("/v1/")) return;
+    const contentType = response.headers()["content-type"] || "";
+    if (!response.ok() || contentType.includes("text/html")) {
+      apiErrors.push(`${response.status()} ${url.pathname} ${contentType}`);
+    }
   });
 
   await page.goto(baseURL!);
@@ -18,7 +27,7 @@ test("real Gateway drives the hardware workbench", async ({ page }) => {
   }
 
   await expect(page.getByText(deviceId!.slice(0, 12)).first()).toBeVisible();
-  await expect(page.getByText("在线", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("已连接", { exact: true }).first()).toBeVisible();
   await page.getByText("更多操作", { exact: true }).click();
   await page.getByRole("button", { name: "原始 RPC", exact: true }).click();
   await page.getByLabel("Service ID").fill("1");
@@ -43,14 +52,17 @@ test("real Gateway drives the hardware workbench", async ({ page }) => {
 
   await page.getByRole("button", { name: "文件", exact: true }).click();
   await expect(page.getByText("README.txt", { exact: true })).toBeVisible();
+  const uploadName = `hardware-playwright-${Date.now()}.txt`;
   await page.getByLabel("选择上传文件").setInputFiles({
-    name: "hardware-playwright.txt",
+    name: uploadName,
     mimeType: "text/plain",
     buffer: Buffer.from("real ESP-Iris workbench upload\n"),
   });
-  await expect(
-    page.getByText("已上传 hardware-playwright.txt", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText(`已上传 ${uploadName}`, { exact: true })).toBeVisible();
+  const uploadedFile = page.getByRole("row").filter({ hasText: uploadName });
+  page.once("dialog", (dialog) => void dialog.accept());
+  await uploadedFile.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByText(`已删除 ${uploadName}`, { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "记录", exact: true }).click();
   await expect(page.getByRole("tab", { name: "设备操作" })).toBeVisible();
@@ -61,5 +73,6 @@ test("real Gateway drives the hardware workbench", async ({ page }) => {
 
   const screenshot = process.env.ESP_IRIS_E2E_SCREENSHOT;
   if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
+  expect(apiErrors).toEqual([]);
   expect(browserErrors).toEqual([]);
 });

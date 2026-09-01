@@ -536,6 +536,8 @@ async def _ctl(args: argparse.Namespace) -> int:
                         )
                         accepted["operation"] = operation
                     _output(accepted, args.json)
+                    if args.wait and operation["status"] != "succeeded":
+                        return 1
             elif command == "system-update":
                 bundle_path = pathlib.Path(args.bundle).expanduser().resolve()
                 if not bundle_path.is_file():
@@ -562,6 +564,8 @@ async def _ctl(args: argparse.Namespace) -> int:
                     )
                     accepted["operation"] = operation
                 _output(accepted, args.json)
+                if args.wait and operation["status"] != "succeeded":
+                    return 1
             elif command == "screenshot":
                 url = base + f"/v1/devices/{args.device}/screenshot?save=true"
                 body = {

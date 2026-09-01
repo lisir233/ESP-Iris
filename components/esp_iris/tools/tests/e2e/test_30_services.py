@@ -284,7 +284,24 @@ def test_raw_file_errors_abort_and_disconnect_cleanup(
             assert busy is FileStatus.BUSY
             await raw.request(Channel.FILE, FileType.ABORT, stream_id=stream)
 
-            _, no_space = await open_write(raw, "too-large.bin", 16 * 1024 * 1024)
+            stream, no_space = await open_write(
+                raw, "too-large.bin", 16 * 1024 * 1024
+            )
+            if no_space is FileStatus.OK:
+                offset = 0
+                chunk = b"x" * 1024
+                while True:
+                    written = await raw.request(
+                        Channel.FILE,
+                        FileType.WRITE,
+                        struct.pack("<QHH", offset, len(chunk), 0) + chunk,
+                        stream_id=stream,
+                        timeout=10,
+                    )
+                    no_space = _file_status(written.payload)
+                    if no_space is not FileStatus.OK:
+                        break
+                    offset = struct.unpack_from("<Q", written.payload, 4)[0]
             assert no_space is FileStatus.NO_SPACE
 
             volume = b"fs"
@@ -315,6 +332,9 @@ def test_raw_file_errors_abort_and_disconnect_cleanup(
                 await reconnected.session.files.stat("fs", "disconnect.bin")
             assert missing.value.status is FileStatus.NOT_FOUND
             listing = await reconnected.session.files.list_directory("fs", "")
+            assert not any(
+                item["name"] == "too-large.bin" for item in listing["entries"]
+            )
             assert not any(".iris" in item["name"] for item in listing["entries"])
         finally:
             await reconnected.close()

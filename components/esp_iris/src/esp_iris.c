@@ -359,6 +359,9 @@ static void handle_control(iris_runtime_t *runtime,
                     ESP_IRIS_FLAG_RESPONSE |
                         (auth_err == ESP_OK ? 0 : ESP_IRIS_FLAG_ERROR),
                     header->request_id, 0, &result, sizeof(result));
+                if (auth_err != ESP_OK) {
+                    runtime->disconnect_after_tx = true;
+                }
             }
             if (auth_err == ESP_OK && transition_session(
                     runtime, IRIS_SESSION_EVENT_AUTHENTICATED)) {
@@ -569,6 +572,7 @@ static void begin_session(iris_runtime_t *runtime)
     runtime->next_hello_us = 0;
     runtime->rx_wire_length = 0;
     runtime->rx_discarding = false;
+    runtime->disconnect_after_tx = false;
     runtime->tx_wire_length = 0;
     runtime->tx_wire_offset = 0;
     ++runtime->link_count;
@@ -591,6 +595,7 @@ static void end_session(iris_runtime_t *runtime)
     runtime->log_credit = 0;
     runtime->rx_wire_length = 0;
     runtime->rx_discarding = false;
+    runtime->disconnect_after_tx = false;
     runtime->tx_wire_length = 0;
     runtime->tx_wire_offset = 0;
 }
@@ -642,6 +647,11 @@ static bool pump_link(iris_runtime_t *runtime, uint8_t *input,
                       size_t input_capacity)
 {
     bool progressed = flush_tx(runtime);
+    if (runtime->tx_wire_length == 0 && runtime->disconnect_after_tx) {
+        runtime->disconnect_after_tx = false;
+        iris_transport_disconnect(runtime);
+        return true;
+    }
     if (runtime->tx_wire_length != 0) {
         iris_services_poll(runtime);
         return progressed;
@@ -677,6 +687,11 @@ static bool pump_link(iris_runtime_t *runtime, uint8_t *input,
     if (runtime->tx_wire_length != 0) {
         progressed = true;
         (void)flush_tx(runtime);
+    }
+    if (runtime->tx_wire_length == 0 && runtime->disconnect_after_tx) {
+        runtime->disconnect_after_tx = false;
+        iris_transport_disconnect(runtime);
+        return true;
     }
     iris_services_poll(runtime);
     return progressed;

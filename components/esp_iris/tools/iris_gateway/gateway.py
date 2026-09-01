@@ -1401,6 +1401,15 @@ def create_app(service: GatewayService) -> web.Application:
             content_type="text/html",
         )
 
+    async def api_not_found(request: web.Request) -> web.Response:
+        return web.json_response(
+            {
+                "error": "not_found",
+                "message": f"unknown API route: {request.method} {request.path}",
+            },
+            status=404,
+        )
+
     app.router.add_get("/v1/health", health)
     app.router.add_get("/v1/metrics", metrics)
     app.router.add_get("/v1/auth/state", auth_state)
@@ -1451,6 +1460,7 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_put("/v1/auth/password", change_password)
     app.router.add_post("/v1/export", export)
     app.router.add_get("/v1/openapi.json", openapi)
+    app.router.add_route("*", "/v1/{path:.*}", api_not_found)
     app.router.add_get("/{path:.*}", spa)
     return app
 

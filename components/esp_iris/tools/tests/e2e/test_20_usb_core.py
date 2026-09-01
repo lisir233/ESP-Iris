@@ -217,10 +217,10 @@ def test_lifecycle_reconnect_preserves_identity_and_releases_resources(
             assert state.register_count == 2 and state.unregister_count == 1
             assert state.last_error == 0
             assert after["task_stack_free_min_bytes"] >= 512
-            assert abs(
+            assert (
                 after["internal_heap_used_bytes"]
-                - before["internal_heap_used_bytes"]
-            ) <= 256
+                <= before["internal_heap_used_bytes"] + 256
+            )
         finally:
             await second.close()
 

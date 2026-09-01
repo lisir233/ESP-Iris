@@ -69,6 +69,7 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByLabel("关闭").click();
 
+  await page.getByText("更多操作", { exact: true }).click();
   await page.getByRole("button", { name: "系统更新包", exact: true }).click();
   await expect(page.getByRole("heading", { name: "执行系统更新" })).toBeVisible();
   const confirmSystemUpdate = page.getByRole("button", { name: "确认执行" });

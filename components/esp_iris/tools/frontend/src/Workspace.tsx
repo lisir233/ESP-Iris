@@ -33,6 +33,12 @@ export default function Workspace({ device, status, mode, operations, events, re
   const [otaValidationMode, setOtaValidationMode] = useState<OtaValidationMode>("elf_sha256");
   const [systemUpdateBundle, setSystemUpdateBundle] = useState<File | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
+  const advancedActions = useRef<HTMLDetailsElement>(null);
+
+  function openAdvancedDialog(next: Exclude<Dialog, null>) {
+    advancedActions.current?.removeAttribute("open");
+    setDialog(next);
+  }
   const deviceOperations = operations.filter((item) => item.device_id === device?.device_id);
   const disabled = mode === "observe" || !device?.connected;
   const systemUpdateReady = systemUpdateTrustConfigured && Boolean(device?.capability_names?.includes("system_inventory"));
@@ -158,7 +164,7 @@ export default function Workspace({ device, status, mode, operations, events, re
           <button disabled={disabled} onClick={() => setDialog("rpc")}>调用 RPC…</button>
           <button disabled={disabled} onClick={() => setConsoleOpen(true)}>逐行 Console</button>
           <span className="queue-info">队列 {status?.queue?.queued.length ?? 0} · 运行 {status?.queue?.running.length ?? 0}</span>
-          <details className="advanced-actions"><summary>更多操作</summary><div><button disabled={disabled} onClick={() => setDialog("raw")}>原始 RPC</button><button disabled={disabled} onClick={() => setDialog("job")}>取消 Job</button><button disabled={disabled} onClick={() => setDialog("ota")}>OTA 更新</button><button className="danger-outline" disabled={disabled || !systemUpdateReady} title={!systemUpdateTrustConfigured ? "Gateway 未配置 System Update 信任公钥" : systemUpdateReady ? "上传签名 .irisfw 系统更新包" : "设备未提供只读 System Inventory"} onClick={() => setDialog("system_update")}>系统更新包</button><button className="danger-outline" disabled={disabled} onClick={() => setDialog("factory")}>Factory Recovery</button><button className="danger-outline" disabled={disabled} onClick={() => setDialog("restart")}>重启设备</button></div></details>
+          <details ref={advancedActions} className="advanced-actions"><summary>更多操作</summary><div><button disabled={disabled} onClick={() => openAdvancedDialog("raw")}>原始 RPC</button><button disabled={disabled} onClick={() => openAdvancedDialog("job")}>取消 Job</button><button disabled={disabled} onClick={() => openAdvancedDialog("ota")}>OTA 更新</button><button className="danger-outline" disabled={disabled || !systemUpdateReady} title={!systemUpdateTrustConfigured ? "Gateway 未配置 System Update 信任公钥" : systemUpdateReady ? "上传签名 .irisfw 系统更新包" : "设备未提供只读 System Inventory"} onClick={() => openAdvancedDialog("system_update")}>系统更新包</button><button className="danger-outline" disabled={disabled} onClick={() => openAdvancedDialog("factory")}>Factory Recovery</button><button className="danger-outline" disabled={disabled} onClick={() => openAdvancedDialog("restart")}>重启设备</button></div></details>
         </div>
         {notice && <div className="inline-notice">{notice}</div>}
         {activeOperation && <div className="active-operation"><span>当前操作</span><strong>{actionLabel(activeOperation.action)}</strong><em className={`op-status ${activeOperation.status}`}>{activeOperation.status}</em>{activeOperation.progress && <progress max={1000} value={activeOperation.progress.progress_permille} />}</div>}
@@ -261,7 +267,7 @@ function DeviceScreen({ device, mode, events }: { device: Device; mode: "develop
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ width: 640, height: 360 }),
+        body: JSON.stringify({}),
       });
       if (!response.ok) throw new Error("截图失败");
       const metadata = JSON.parse(
@@ -270,6 +276,7 @@ function DeviceScreen({ device, mode, events }: { device: Device; mode: "develop
       const reusedMirror = Boolean(metadata.mirror_reused);
       const nextUrl = URL.createObjectURL(await response.blob());
       setImage((previous) => { if (previous.startsWith("blob:")) URL.revokeObjectURL(previous); return nextUrl; });
+      setStreamKind("encoded");
       if (reusedMirror && !mirroring) {
         setFrameDescription({
           ...metadata,
@@ -319,7 +326,7 @@ function DeviceScreen({ device, mode, events }: { device: Device; mode: "develop
       <div className="panel-title"><span>设备画面</span><small>{screenBusy ? "处理中…" : mirroring ? "镜像中" : "未启动"}</small><div><button disabled={mode === "observe" || screenBusy} onClick={captureScreenshot}>截图</button><button disabled={mode === "observe" || screenBusy} onClick={toggleMirror}>{mirroring ? "停止镜像" : "启动镜像"}</button><button disabled={mode === "observe"} className={inputEnabled ? "active-control" : ""} onClick={() => setInputEnabled((value) => !value)}>交互输入</button></div></div>
       {screenNotice && <div className="inline-notice">{screenNotice}</div>}
       <div className={`screen-surface ${inputEnabled ? "input-enabled" : ""}`} onPointerDown={(event) => { if (inputEnabled) { const begin = point(event); if (begin) { event.currentTarget.setPointerCapture(event.pointerId); gesture.current = { begin, moves: [] }; } } }} onPointerMove={(event) => { if (gesture.current) { const move = point(event, true); if (move) gesture.current.moves.push(move); } }} onPointerUp={pointerUp} onPointerCancel={() => { gesture.current = null; }}>
-        <canvas ref={screenCanvas} className={mirroring && streamKind === "raw" ? "" : "hidden"} aria-label="设备实时画面" />
+        <canvas ref={screenCanvas} className={streamKind === "raw" ? "" : "hidden"} aria-label="设备实时画面" />
         {streamKind !== "raw" && image ? <img ref={screenImage} src={image} alt="设备实时画面" /> : streamKind !== "raw" && <div className="screen-placeholder"><strong>屏幕未启动</strong><small>点击“启动镜像”查看设备画面</small></div>}
         {lastAgentInput && <div className="agent-pointer"><i />Agent 输入</div>}
         {inputEnabled && <div className="input-overlay-label">INPUT CAPTURE</div>}

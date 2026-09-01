@@ -873,6 +873,31 @@ static bool constant_time_equal(const uint8_t *left, const uint8_t *right,
 }
 #endif
 
+#if CONFIG_ESP_IRIS_TCP_PAIRING
+static esp_err_t auth_failure(iris_service_state_t *state, esp_err_t error)
+{
+    const int64_t delay_us =
+        (int64_t)CONFIG_ESP_IRIS_AUTH_FAILURE_DELAY_MS * 1000;
+    const int64_t deadline_us = esp_timer_get_time() + delay_us;
+    if (valid_state(state)) {
+        state->auth_retry_after_us = deadline_us;
+    }
+    do {
+        const int64_t remaining_us = deadline_us - esp_timer_get_time();
+        if (remaining_us <= 0) {
+            break;
+        }
+        TickType_t ticks = pdMS_TO_TICKS(
+            (uint32_t)((remaining_us + 999) / 1000));
+        if (ticks == 0) {
+            ticks = 1;
+        }
+        vTaskDelay(ticks);
+    } while (esp_timer_get_time() < deadline_us);
+    return error;
+}
+#endif
+
 esp_err_t iris_services_authenticate(const iris_runtime_t *runtime,
                                      const uint8_t *payload, size_t size)
 {
@@ -884,11 +909,20 @@ esp_err_t iris_services_authenticate(const iris_runtime_t *runtime,
     if (!valid_state(state) || !state->auth_token_ready ||
         payload == NULL ||
         size != IRIS_AUTH_NONCE_BYTES + IRIS_AUTH_PROOF_BYTES) {
-        return ESP_ERR_INVALID_ARG;
+        return auth_failure(state, ESP_ERR_INVALID_ARG);
     }
     const int64_t now = esp_timer_get_time();
     if (now < state->auth_retry_after_us) {
-        return ESP_ERR_TIMEOUT;
+        int64_t remaining_us = state->auth_retry_after_us - now;
+        while (remaining_us > 0) {
+            TickType_t ticks = pdMS_TO_TICKS(
+                (uint32_t)((remaining_us + 999) / 1000));
+            if (ticks == 0) {
+                ticks = 1;
+            }
+            vTaskDelay(ticks);
+            remaining_us = state->auth_retry_after_us - esp_timer_get_time();
+        }
     }
     static const uint8_t label[] = "ESP-Iris-auth-v1";
     uint8_t message[sizeof(label) - 1 + 16 + 8 + 4 +
@@ -934,10 +968,7 @@ esp_err_t iris_services_authenticate(const iris_runtime_t *runtime,
     if (result != PSA_SUCCESS || expected_size != sizeof(expected) ||
         !constant_time_equal(expected, payload + IRIS_AUTH_NONCE_BYTES,
                              sizeof(expected))) {
-        state->auth_retry_after_us = now +
-            (int64_t)CONFIG_ESP_IRIS_AUTH_FAILURE_DELAY_MS * 1000;
-        vTaskDelay(pdMS_TO_TICKS(CONFIG_ESP_IRIS_AUTH_FAILURE_DELAY_MS));
-        return ESP_ERR_INVALID_CRC;
+        return auth_failure(state, ESP_ERR_INVALID_CRC);
     }
     state->auth_retry_after_us = 0;
     return ESP_OK;

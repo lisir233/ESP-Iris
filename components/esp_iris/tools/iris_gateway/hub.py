@@ -25,8 +25,12 @@ ENCODED_MEDIA_FORMATS = {3, 4}
 
 def _firmware_mode_from_identity(project_name: str, app_version: str) -> str:
     """Classify a USB image from identity fields that survive re-enumeration."""
-    identity = f"{project_name} {app_version}".casefold()
-    return "recovery" if "recovery" in identity else "normal"
+    version = app_version.casefold()
+    if "recovery" in version:
+        return "recovery"
+    if any(marker in version for marker in ("application", "normal", "stable")):
+        return "normal"
+    return "recovery" if "recovery" in project_name.casefold() else "normal"
 
 
 async def _next_complete_screen_frame(

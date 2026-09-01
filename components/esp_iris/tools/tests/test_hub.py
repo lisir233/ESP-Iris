@@ -57,6 +57,12 @@ class SupervisorLink:
 def test_usb_firmware_mode_uses_hello_identity_instead_of_com_port_name() -> None:
     assert _firmware_mode_from_identity("esp_iris_ota", "1.0.0-recovery") == "recovery"
     assert _firmware_mode_from_identity("esp_iris_ota", "1.0.0-a") == "normal"
+    assert (
+        _firmware_mode_from_identity(
+            "esp_iris_crash_recovery", "1.0.0-crash-application"
+        )
+        == "normal"
+    )
 
 
 def test_supervisor_retries_and_classifies_same_boot_as_reconnect() -> None:

@@ -178,4 +178,11 @@ PROFILES: dict[str, FirmwareProfile] = {
         ("sdkconfig.application.defaults",),
         ("CONFIG_ESP_IRIS_CRASH_EXAMPLE_AUTO_CRASH",),
     ),
+    "crash_application_stable": FirmwareProfile(
+        "crash_application_stable",
+        COMPONENT / "examples" / "crash_recovery",
+        ("sdkconfig.stable.defaults",),
+        ("CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE",),
+        ("CONFIG_ESP_IRIS_CRASH_EXAMPLE_AUTO_CRASH",),
+    ),
 }
