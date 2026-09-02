@@ -23,6 +23,9 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         "/v1/health": {"get": {"summary": "Gateway health"}},
         "/v1/auth/login": {"post": {"summary": "Developer password login"}},
         "/v1/devices": {"get": {"summary": "Connected and cached devices"}},
+        "/v1/maintenance-endpoints/leases": {
+            "post": {"summary": "Acquire local physical-endpoint maintenance lease"}
+        },
         "/v1/devices/{device_id}": {
             "get": {"summary": "Current or cached status"},
             "delete": {

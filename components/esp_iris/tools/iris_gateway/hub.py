@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
+import os
 import struct
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -386,37 +387,136 @@ class IrisHub:
         """Close one local USB session while retaining its cross-process lock."""
 
         session = self.get(device_id)
-        endpoint = session.link.endpoint
+        return await self.quiesce_endpoint(session.link.endpoint)
+
+    def maintenance_endpoint(self, identifier: str) -> dict[str, Any]:
+        """Resolve or register one physical endpoint without opening a session."""
+
+        resolved_identifier = os.path.realpath(identifier)
+        matches: list[dict[str, Any]] = []
+        for state in self._endpoint_states.values():
+            paths = [str(state.get(key) or "") for key in ("path", "device_path")]
+            if state.get("endpoint") == identifier or any(
+                path
+                and (
+                    path == identifier
+                    or os.path.realpath(path) == resolved_identifier
+                )
+                for path in paths
+            ):
+                matches.append(state)
+        if len(matches) > 1:
+            raise LookupError("maintenance endpoint is ambiguous")
+        if matches:
+            return matches[0].copy()
+
+        from serial.tools import list_ports
+
+        ports = [
+            port
+            for port in list_ports.comports()
+            if identifier == str(port.device)
+            or resolved_identifier == os.path.realpath(str(port.device))
+        ]
+        if len(ports) != 1:
+            raise LookupError(
+                "maintenance endpoint was not found"
+                if not ports
+                else "maintenance endpoint is ambiguous"
+            )
+        port = ports[0]
+        location = str(getattr(port, "location", None) or "")
+        serial_number = str(getattr(port, "serial_number", None) or "")
+        endpoint = (
+            f"usb:location={location}"
+            if location
+            else f"usb:serial={serial_number}"
+            if serial_number
+            else f"usb:{identifier}"
+        )
+        state = self._endpoint_states.setdefault(
+            endpoint,
+            {
+                "endpoint": endpoint,
+                "state": "unmanaged",
+                "attempt": 0,
+                "error": None,
+                "device_id": None,
+                "updated_monotonic_ns": time.monotonic_ns(),
+            },
+        )
+        state.update(
+            path=identifier,
+            device_path=str(port.device),
+            vid=getattr(port, "vid", None),
+            pid=getattr(port, "pid", None),
+            serial_number=serial_number,
+            product=str(getattr(port, "product", None) or ""),
+            location=location,
+            firmware_mode="unknown",
+            transport_name="USB Highspeed",
+        )
+
+        async def opener() -> Link:
+            current_port = str(
+                self._endpoint_states.get(endpoint, {}).get("path") or identifier
+            )
+            return await SerialLink.open(current_port, endpoint=endpoint)
+
+        self._endpoint_configs[endpoint] = (opener, None)
+        return state.copy()
+
+    async def quiesce_endpoint(self, identifier: str) -> dict[str, Any]:
+        """Close one local USB endpoint even when HELLO identity is unavailable."""
+
+        resolved = self.maintenance_endpoint(identifier)
+        endpoint = str(resolved["endpoint"])
         if not endpoint.startswith("usb:"):
             raise RuntimeError("host maintenance is supported only for local USB devices")
         state = self._endpoint_states.get(endpoint)
         if state is None:
             raise RuntimeError("device endpoint state is unavailable")
+        if endpoint in self._maintenance_endpoints:
+            raise RuntimeError("device endpoint is already reserved for maintenance")
+        device_id = str(state.get("device_id") or "")
+        session = self._devices.get(device_id) if device_id else None
+        if endpoint not in self._locks:
+            lock = EndpointLock(endpoint)
+            try:
+                lock.acquire()
+            except BaseException:
+                lock.close()
+                raise
+            self._locks[endpoint] = lock
         self._maintenance_endpoints.add(endpoint)
         task = self._endpoint_tasks.pop(endpoint, None)
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        self._devices.pop(device_id, None)
+        if device_id:
+            self._devices.pop(device_id, None)
         state.update(
             state="maintenance_detached",
-            device_id=device_id,
+            device_id=device_id or None,
             error=None,
             updated_monotonic_ns=time.monotonic_ns(),
         )
-        await self._on_event(
-            {
-                "kind": "connection",
-                "connection_state": "maintenance_detached",
-                "device_id": device_id,
-                "boot_id": session.info.boot_id if session.info else None,
-                "session_id": session.info.session_id if session.info else None,
-                "endpoint": endpoint,
-                "host_receive_monotonic_ns": time.monotonic_ns(),
-                "host_receive_wall_ns": time.time_ns(),
-            }
-        )
+        if device_id:
+            await self._on_event(
+                {
+                    "kind": "connection",
+                    "connection_state": "maintenance_detached",
+                    "device_id": device_id,
+                    "boot_id": session.info.boot_id if session and session.info else None,
+                    "session_id": (
+                        session.info.session_id if session and session.info else None
+                    ),
+                    "endpoint": endpoint,
+                    "host_receive_monotonic_ns": time.monotonic_ns(),
+                    "host_receive_wall_ns": time.time_ns(),
+                }
+            )
         return state.copy()
 
     def reserve_maintenance_endpoint(self, endpoint_state: dict[str, Any]) -> None:

@@ -3,6 +3,7 @@ import hashlib
 import json
 import struct
 import uuid
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from aiohttp import FormData
@@ -10,6 +11,7 @@ from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 from iris_gateway.cli import _client_ssl, _listen_is_loopback, build_parser
 from iris_gateway.demo import DemoHub
 from iris_gateway.gateway import GatewayService, create_app
+from iris_gateway.hub import IrisHub
 from iris_gateway.security import Actor
 from iris_gateway.store import GatewayStore
 from iris_gateway.system_update import SYSTEM_UPDATE_SCHEMA, build_system_update_bundle
@@ -101,6 +103,7 @@ def test_local_maintenance_lease_detaches_one_demo_device_and_aborts_cleanly(tmp
             health = await (await client.get("/v1/health")).json()
             assert health["gateway_api"]["major"] == 1
             assert "device-maintenance-lease/v1" in health["capabilities"]
+            assert "physical-endpoint-maintenance-lease/v1" in health["capabilities"]
             response = await client.post(
                 "/v1/devices/demo-a1b2c3d4/maintenance-leases",
                 json={"purpose": "recovery", "ttl_seconds": 60},
@@ -172,6 +175,60 @@ def test_maintenance_completion_requires_recovery_identity_and_new_boot(tmp_path
             assert result["evidence"]["verification"]["device_id"] == (
                 "demo-a1b2c3d4"
             )
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
+def test_endpoint_maintenance_lease_registers_unmanaged_usb_endpoint(
+    tmp_path, monkeypatch
+) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        service = GatewayService(store, instance_id="test")
+        hub = IrisHub("test", reconnect_min_seconds=0.001)
+        monkeypatch.setattr(
+            "serial.tools.list_ports.comports",
+            lambda: [
+                SimpleNamespace(
+                    device="/dev/ttyACM-test",
+                    location="test:1.0",
+                    serial_number="rom-test",
+                    vid=0x303A,
+                    pid=0x20,
+                    product="ESP32-S31",
+                )
+            ],
+        )
+        service.attach_hub(hub)
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            response = await client.post(
+                "/v1/maintenance-endpoints/leases",
+                json={
+                    "endpoint": "/dev/ttyACM-test",
+                    "expected_version": "2.1.1-recovery",
+                },
+            )
+            assert response.status == 201
+            lease = (await response.json())["lease"]
+            endpoint = "usb:location=test:1.0"
+            assert lease["device_id"] == f"endpoint::{endpoint}"
+            assert lease["evidence"]["expected_device_id"] is None
+            assert hub.list_endpoints()[0]["state"] == "maintenance_detached"
+            assert endpoint not in hub._endpoint_tasks
+            aborted = await client.post(
+                f"/v1/maintenance-leases/{lease['lease_id']}/abort",
+                headers={"X-Maintenance-Token": lease["token"]},
+                json={},
+            )
+            assert aborted.status == 200
+            assert (await aborted.json())["lease"]["state"] == "aborted"
+            assert endpoint in hub._endpoint_tasks
         finally:
             await client.close()
             await hub.close()

@@ -60,7 +60,10 @@ CONSOLE_LINE_MAX_BYTES = 255
 OTA_VALIDATION_MODES = ("elf_sha256", "version")
 DEFAULT_OTA_VALIDATION_MODE = "elf_sha256"
 GATEWAY_API = {"major": 1, "minor": 1}
-GATEWAY_CAPABILITIES = ["device-maintenance-lease/v1"]
+GATEWAY_CAPABILITIES = [
+    "device-maintenance-lease/v1",
+    "physical-endpoint-maintenance-lease/v1",
+]
 ACTIVE_MAINTENANCE_STATES = {
     "detached",
     "flashing",
@@ -431,6 +434,123 @@ class GatewayService:
             self.operations.release_maintenance(device_id)
             raise
 
+    async def acquire_endpoint_maintenance(
+        self,
+        identifier: str,
+        actor: Actor,
+        *,
+        purpose: str,
+        expected_version: str,
+        wait_timeout: float,
+        ttl_seconds: float,
+    ) -> dict[str, Any]:
+        """Detach one local endpoint even when it has no live HELLO identity."""
+
+        endpoint_before = self.device_hub.maintenance_endpoint(identifier)
+        endpoint_name = str(endpoint_before.get("endpoint") or "")
+        if not endpoint_name.startswith("usb:"):
+            raise RuntimeError("host maintenance is supported only for local USB devices")
+        cached_for_endpoint = next(
+            (
+                item
+                for item in self.list_devices()
+                if str(item.get("endpoint") or "") == endpoint_name
+            ),
+            None,
+        )
+        expected_device_id = str(
+            endpoint_before.get("device_id")
+            or (cached_for_endpoint or {}).get("device_id")
+            or ""
+        ) or None
+        gate_key = expected_device_id or f"endpoint::{endpoint_name}"
+        await self.operations.acquire_maintenance(gate_key, wait_timeout)
+        endpoint: dict[str, Any] | None = None
+        try:
+            cached_before = next(
+                (
+                    item
+                    for item in self.list_devices()
+                    if expected_device_id
+                    and str(item.get("device_id") or "") == expected_device_id
+                ),
+                None,
+            )
+            live_ids = {
+                str(item.get("device_id") or "")
+                for item in self.device_hub.list_devices()
+            }
+            live = expected_device_id is not None and expected_device_id in live_ids
+            before = (
+                await self.device_hub.status(expected_device_id)
+                if live and expected_device_id
+                else cached_before
+            )
+            previous_boot_id = before.get("boot_id") if before else None
+            evidence: dict[str, Any] = {
+                "expected_device_id": expected_device_id,
+                "endpoint_before": endpoint_before,
+            }
+            if before is not None:
+                evidence["device_before"] = before
+            if live and expected_device_id:
+                crash_report = await self.device_hub.crash_report(expected_device_id)
+                crash_path = self.store.save_artifact(
+                    expected_device_id,
+                    "crash-index",
+                    (json.dumps(crash_report, ensure_ascii=False, indent=2) + "\n").encode(),
+                    "json",
+                )
+                evidence["crash_index"] = str(crash_path)
+                if crash_report.get("core_dump_present") and crash_report.get(
+                    "core_dump_valid"
+                ):
+                    preserved = await self.preserve_coredump(expected_device_id)
+                    if preserved is None:
+                        raise RuntimeError("a valid core dump could not be preserved")
+                    evidence["core_dump"] = preserved
+            endpoint = await self.device_hub.quiesce_endpoint(endpoint_name)
+            now = time.time_ns()
+            token = secrets.token_urlsafe(32)
+            lease = self.store.create_maintenance_lease(
+                {
+                    "lease_id": str(uuid.uuid4()),
+                    "device_id": gate_key,
+                    "token_hash": self._lease_token_hash(token),
+                    "purpose": purpose,
+                    "state": "detached",
+                    "endpoint": endpoint,
+                    "evidence": evidence,
+                    "previous_boot_id": previous_boot_id,
+                    "expected_version": expected_version,
+                    "actor_type": actor.kind,
+                    "actor_name": actor.name,
+                    "created_ns": now,
+                    "expires_ns": now + int(max(30.0, ttl_seconds) * 1_000_000_000),
+                }
+            )
+            audit = self.store.add_audit(
+                actor.kind,
+                actor.name,
+                "maintenance.endpoint_acquired",
+                {
+                    "lease_id": lease["lease_id"],
+                    "device_id": expected_device_id,
+                    "endpoint": endpoint_name,
+                    "purpose": purpose,
+                },
+            )
+            await self._broadcast_system(audit)
+            return {**self._lease_public(lease), "token": token}
+        except BaseException:
+            if endpoint is not None:
+                with contextlib.suppress(Exception):
+                    await self.device_hub.resume_maintenance_endpoint(
+                        str(endpoint["endpoint"])
+                    )
+            self.operations.release_maintenance(gate_key)
+            raise
+
     def maintenance_lease(self, lease_id: str) -> dict[str, Any]:
         lease = self.store.maintenance_lease(lease_id)
         if lease is None:
@@ -460,7 +580,15 @@ class GatewayService:
         if lease["state"] not in ACTIVE_MAINTENANCE_STATES:
             return self._lease_public(lease)
         endpoint = str(lease["endpoint"]["endpoint"])
-        device_id = str(lease["device_id"])
+        gate_key = str(lease["device_id"])
+        evidence = lease.get("evidence", {})
+        endpoint_lease = isinstance(evidence, dict) and "expected_device_id" in evidence
+        expected_device_id = (
+            str(evidence.get("expected_device_id") or "") or None
+            if endpoint_lease
+            else gate_key
+        )
+        audit_device_id = expected_device_id or gate_key
         try:
             self.store.update_maintenance_lease(lease_id, state="reattaching")
             await self.device_hub.resume_maintenance_endpoint(endpoint)
@@ -472,7 +600,7 @@ class GatewayService:
                     "lease",
                     lease_id,
                     "maintenance.aborted",
-                    {"device_id": device_id},
+                    {"device_id": audit_device_id},
                 )
                 return self._lease_public(completed)
 
@@ -484,16 +612,25 @@ class GatewayService:
                 matches = [
                     item
                     for item in self.device_hub.list_devices()
-                    if item.get("device_id") == device_id
+                    if item.get("endpoint") == endpoint
+                    and (
+                        expected_device_id is None
+                        or item.get("device_id") == expected_device_id
+                    )
                 ]
                 if len(matches) != 1:
                     continue
-                last_status = await self.device_hub.status(device_id)
+                actual_device_id = str(matches[0].get("device_id") or "")
+                if not actual_device_id:
+                    continue
+                last_status = await self.device_hub.status(actual_device_id)
                 capabilities = last_status.get("capability_names", [])
                 current_boot_id = last_status.get("boot_id")
-                boot_changed = current_boot_id not in (None, "") and str(
-                    current_boot_id
-                ) != str(lease["previous_boot_id"])
+                previous_boot_id = lease.get("previous_boot_id")
+                boot_changed = current_boot_id not in (None, "") and (
+                    previous_boot_id in (None, "")
+                    or str(current_boot_id) != str(previous_boot_id)
+                )
                 version_matches = (
                     not lease.get("expected_version")
                     or last_status.get("app_version") == lease["expected_version"]
@@ -516,7 +653,10 @@ class GatewayService:
                         "lease",
                         lease_id,
                         "maintenance.released",
-                        {"device_id": device_id, "boot_id": last_status.get("boot_id")},
+                        {
+                            "device_id": actual_device_id,
+                            "boot_id": last_status.get("boot_id"),
+                        },
                     )
                     return self._lease_public(completed)
             raise RuntimeError(
@@ -534,11 +674,11 @@ class GatewayService:
                 "lease",
                 lease_id,
                 "maintenance.verification_failed",
-                {"device_id": device_id, "error": str(exc)},
+                {"device_id": audit_device_id, "error": str(exc)},
             )
             raise
         finally:
-            self.operations.release_maintenance(device_id)
+            self.operations.release_maintenance(gate_key)
 
     async def closed_loop_ota(
         self,
@@ -975,6 +1115,24 @@ def create_app(service: GatewayService) -> web.Application:
         body = await _json_body(request)
         lease = await service.acquire_maintenance(
             request.match_info["device_id"],
+            _actor(request),
+            purpose=str(body.get("purpose") or "recovery"),
+            expected_version=str(body.get("expected_version") or ""),
+            wait_timeout=float(body.get("wait_timeout") or 30),
+            ttl_seconds=float(body.get("ttl_seconds") or 300),
+        )
+        return web.json_response({"lease": lease}, status=201)
+
+    async def maintenance_endpoint_acquire(request: web.Request) -> web.Response:
+        denied = require_local_maintenance(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        endpoint = str(body.get("endpoint") or body.get("path") or "")
+        if not endpoint:
+            raise ValueError("endpoint or path is required")
+        lease = await service.acquire_endpoint_maintenance(
+            endpoint,
             _actor(request),
             purpose=str(body.get("purpose") or "recovery"),
             expected_version=str(body.get("expected_version") or ""),
@@ -1726,6 +1884,9 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_get("/v1/endpoints", endpoints)
     app.router.add_post(
         "/v1/devices/{device_id}/maintenance-leases", maintenance_acquire
+    )
+    app.router.add_post(
+        "/v1/maintenance-endpoints/leases", maintenance_endpoint_acquire
     )
     app.router.add_get(
         "/v1/maintenance-leases/{lease_id}", maintenance_status

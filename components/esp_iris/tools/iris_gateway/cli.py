@@ -438,6 +438,20 @@ async def _ctl(args: argparse.Namespace) -> int:
                     ssl=ssl_value,
                 ) as response:
                     _output(await _response_json(response), args.json)
+            elif command == "maintenance-acquire-endpoint":
+                url = base + "/v1/maintenance-endpoints/leases"
+                async with session.post(
+                    url,
+                    json={
+                        "endpoint": args.endpoint,
+                        "purpose": "recovery",
+                        "expected_version": args.expected_version,
+                        "wait_timeout": args.wait_timeout,
+                        "ttl_seconds": args.ttl_seconds,
+                    },
+                    ssl=ssl_value,
+                ) as response:
+                    _output(await _response_json(response), args.json)
             elif command == "maintenance-status":
                 url = base + f"/v1/maintenance-leases/{args.lease_id}"
                 async with session.get(url, ssl=ssl_value) as response:
@@ -883,6 +897,13 @@ def build_parser() -> argparse.ArgumentParser:
     maintenance_acquire.add_argument("--expected-version", default="")
     maintenance_acquire.add_argument("--wait-timeout", type=float, default=30)
     maintenance_acquire.add_argument("--ttl-seconds", type=float, default=300)
+    maintenance_endpoint_acquire = commands.add_parser(
+        "maintenance-acquire-endpoint"
+    )
+    maintenance_endpoint_acquire.add_argument("endpoint")
+    maintenance_endpoint_acquire.add_argument("--expected-version", default="")
+    maintenance_endpoint_acquire.add_argument("--wait-timeout", type=float, default=30)
+    maintenance_endpoint_acquire.add_argument("--ttl-seconds", type=float, default=300)
     maintenance_status = commands.add_parser("maintenance-status")
     maintenance_status.add_argument("lease_id")
     maintenance_renew = commands.add_parser("maintenance-renew")

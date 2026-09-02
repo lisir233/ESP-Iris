@@ -781,7 +781,26 @@ class DemoHub:
 
     async def quiesce_device(self, device_id: str) -> dict[str, Any]:
         device = self.get(device_id)
-        endpoint = str(device["endpoint"])
+        return await self.quiesce_endpoint(str(device["endpoint"]))
+
+    def maintenance_endpoint(self, identifier: str) -> dict[str, Any]:
+        for device in self._devices.values():
+            if identifier in {str(device["endpoint"]), str(device.get("path") or "")}:
+                return {
+                    "endpoint": str(device["endpoint"]),
+                    "path": str(device["endpoint"]),
+                    "device_id": device["device_id"],
+                    "transport_name": device["transport_name"],
+                    "state": "ready" if device["connected"] else "retrying",
+                    "demo": True,
+                }
+        raise LookupError("maintenance endpoint was not found")
+
+    async def quiesce_endpoint(self, identifier: str) -> dict[str, Any]:
+        resolved = self.maintenance_endpoint(identifier)
+        endpoint = str(resolved["endpoint"])
+        device_id = str(resolved["device_id"])
+        device = self._devices[device_id]
         self._maintenance_endpoints.add(endpoint)
         device["connected"] = False
         return {

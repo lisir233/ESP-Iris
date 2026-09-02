@@ -142,6 +142,55 @@ def test_quiesce_retains_endpoint_lock_and_resume_restarts_only_that_supervisor(
     asyncio.run(scenario())
 
 
+def test_quiesce_endpoint_without_hello_identity_releases_physical_link() -> None:
+    class HandshakingLink:
+        endpoint = "usb:location=test:1.0"
+
+        def __init__(self) -> None:
+            self.incoming: asyncio.Queue[bytes] = asyncio.Queue()
+            self.closed = False
+
+        async def read(self, size: int = 4096) -> bytes:
+            del size
+            return await self.incoming.get()
+
+        async def write(self, data: bytes) -> None:
+            del data
+
+        async def close(self) -> None:
+            self.closed = True
+
+    async def scenario() -> None:
+        hub = IrisHub("test", reconnect_min_seconds=0.001)
+        links: list[HandshakingLink] = []
+
+        async def opener() -> HandshakingLink:
+            link = HandshakingLink()
+            links.append(link)
+            return link
+
+        hub._add_supervisor(
+            HandshakingLink.endpoint,
+            opener,
+            metadata={"path": "/dev/serial/by-path/test-recovery"},
+        )
+        for _ in range(100):
+            if hub.list_endpoints()[0]["state"] == "handshaking":
+                break
+            await asyncio.sleep(0.002)
+        detached = await hub.quiesce_endpoint("/dev/serial/by-path/test-recovery")
+        assert detached["state"] == "maintenance_detached"
+        assert detached["device_id"] is None
+        assert HandshakingLink.endpoint in hub._locks
+        assert HandshakingLink.endpoint not in hub._endpoint_tasks
+        assert links[0].closed
+        await hub.resume_maintenance_endpoint(HandshakingLink.endpoint)
+        assert HandshakingLink.endpoint in hub._endpoint_tasks
+        await hub.close()
+
+    asyncio.run(scenario())
+
+
 def test_input_gesture_is_one_gateway_operation_with_fixed_pointer_rpc_frames() -> None:
     class PointerSession:
         def __init__(self) -> None:
