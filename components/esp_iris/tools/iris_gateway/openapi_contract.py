@@ -14,6 +14,7 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         "/v1/devices/{device_id}/system-update": "Authenticated system update",
         "/v1/devices/{device_id}/input": "Pointer or touch gesture",
         "/v1/devices/{device_id}/console": "Submit one console command line",
+        "/v1/devices/{device_id}/maintenance-leases": "Acquire local maintenance lease",
         "/v1/devices/{device_id}/screenshot": "Capture screenshot",
         "/v1/devices/{device_id}/mirror/start": "Start media mirror",
         "/v1/devices/{device_id}/mirror/stop": "Stop media mirror",
@@ -62,6 +63,18 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         },
         "/v1/system-audit": {"get": {"summary": "Gateway system audit"}},
         "/v1/metrics": {"get": {"summary": "Gateway process metrics"}},
+        "/v1/maintenance-leases/{lease_id}": {
+            "get": {"summary": "Get maintenance lease state"}
+        },
+        "/v1/maintenance-leases/{lease_id}/renew": {
+            "post": {"summary": "Renew local maintenance lease"}
+        },
+        "/v1/maintenance-leases/{lease_id}/complete": {
+            "post": {"summary": "Reattach and verify maintained device"}
+        },
+        "/v1/maintenance-leases/{lease_id}/abort": {
+            "post": {"summary": "Abort maintenance and reattach device"}
+        },
     }
     for path, summary in control_paths.items():
         paths[path] = {"post": {"summary": summary}}

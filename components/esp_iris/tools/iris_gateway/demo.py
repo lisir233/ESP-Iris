@@ -65,6 +65,7 @@ class DemoHub:
             collections.defaultdict(set)
         )
         self._jobs: dict[str, dict[int, dict[str, Any]]] = collections.defaultdict(dict)
+        self._maintenance_endpoints: set[str] = set()
         self._devices: dict[str, dict[str, Any]] = {
             "demo-a1b2c3d4": self._device(
                 "demo-a1b2c3d4", "Mosaico Alpha", "normal", "3.5.0", 0xA10A
@@ -777,6 +778,33 @@ class DemoHub:
             "boot_id": device["boot_id"],
             "demo": True,
         }
+
+    async def quiesce_device(self, device_id: str) -> dict[str, Any]:
+        device = self.get(device_id)
+        endpoint = str(device["endpoint"])
+        self._maintenance_endpoints.add(endpoint)
+        device["connected"] = False
+        return {
+            "endpoint": endpoint,
+            "path": endpoint,
+            "device_id": device_id,
+            "transport_name": device["transport_name"],
+            "state": "maintenance_detached",
+            "demo": True,
+        }
+
+    def reserve_maintenance_endpoint(self, endpoint_state: dict[str, Any]) -> None:
+        self._maintenance_endpoints.add(str(endpoint_state["endpoint"]))
+
+    async def resume_maintenance_endpoint(self, endpoint: str) -> None:
+        if endpoint not in self._maintenance_endpoints:
+            raise RuntimeError("device endpoint is not reserved for maintenance")
+        self._maintenance_endpoints.remove(endpoint)
+        for device in self._devices.values():
+            if device["endpoint"] == endpoint:
+                device["connected"] = True
+                return
+        raise KeyError(f"unknown ESP-Iris demo endpoint: {endpoint}")
 
     async def audio_upload(self, device_id: str, data: bytes, content_type: str) -> dict[str, Any]:
         self.get(device_id)

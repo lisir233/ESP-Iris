@@ -7,7 +7,6 @@ from unittest.mock import Mock
 
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
-
 from iris_gateway.cli import _client_ssl, _listen_is_loopback, build_parser
 from iris_gateway.demo import DemoHub
 from iris_gateway.gateway import GatewayService, create_app
@@ -81,6 +80,98 @@ def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) 
                 },
             )
             assert invalid_validation.status == 400
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
+def test_local_maintenance_lease_detaches_one_demo_device_and_aborts_cleanly(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            health = await (await client.get("/v1/health")).json()
+            assert health["gateway_api"]["major"] == 1
+            assert "device-maintenance-lease/v1" in health["capabilities"]
+            response = await client.post(
+                "/v1/devices/demo-a1b2c3d4/maintenance-leases",
+                json={"purpose": "recovery", "ttl_seconds": 60},
+            )
+            assert response.status == 201
+            lease = (await response.json())["lease"]
+            assert lease["token"]
+            devices = (await (await client.get("/v1/devices")).json())["devices"]
+            connected = {item["device_id"] for item in devices if item["connected"]}
+            assert "demo-a1b2c3d4" not in connected
+            assert "demo-e5f6a7b8" in connected
+            status = await (
+                await client.get(f"/v1/maintenance-leases/{lease['lease_id']}")
+            ).json()
+            assert "token" not in status["lease"]
+            persisted = store.maintenance_lease(lease["lease_id"])
+            assert persisted is not None
+            assert persisted["token_hash"] != lease["token"]
+            restarted = GatewayService(store, instance_id="restarted", demo=True)
+            assert restarted.operations.maintenance_state("demo-a1b2c3d4") == "active"
+            aborted = await client.post(
+                f"/v1/maintenance-leases/{lease['lease_id']}/abort",
+                json={},
+                headers={"X-Maintenance-Token": lease["token"]},
+            )
+            assert aborted.status == 200
+            assert (await aborted.json())["lease"]["state"] == "aborted"
+            assert len(hub.list_devices()) == 3
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
+def test_maintenance_completion_requires_recovery_identity_and_new_boot(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            response = await client.post(
+                "/v1/devices/demo-a1b2c3d4/maintenance-leases",
+                json={"expected_version": "9.0.0-recovery", "ttl_seconds": 60},
+            )
+            lease = (await response.json())["lease"]
+            device = hub._devices["demo-a1b2c3d4"]
+            device.update(
+                boot_id=device["boot_id"] + 1,
+                firmware_mode="recovery",
+                app_version="9.0.0-recovery",
+            )
+            completed = await client.post(
+                f"/v1/maintenance-leases/{lease['lease_id']}/complete",
+                json={"timeout": 1},
+                headers={"X-Maintenance-Token": lease["token"]},
+            )
+            assert completed.status == 200
+            result = (await completed.json())["lease"]
+            assert result["state"] == "released"
+            assert result["evidence"]["device_before"]["boot_id"] != (
+                result["evidence"]["verification"]["boot_id"]
+            )
+            assert result["evidence"]["verification"]["device_id"] == (
+                "demo-a1b2c3d4"
+            )
         finally:
             await client.close()
             await hub.close()

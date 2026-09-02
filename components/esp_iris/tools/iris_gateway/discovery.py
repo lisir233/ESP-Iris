@@ -19,6 +19,7 @@ class IrisUsbDevice:
     serial_number: str
     product: str = ""
     transport: str = "usb"
+    location: str = ""
 
 
 def _stable_linux_path(device: str) -> str:
@@ -68,6 +69,7 @@ def discover_iris_usb_devices(
                     transport=(
                         "usb_serial_jtag" if is_usb_serial_jtag else "usb"
                     ),
+                    location=getattr(port, "location", None) or "",
                 )
             )
     return sorted(devices, key=lambda item: item.path)

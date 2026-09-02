@@ -149,6 +149,8 @@ async def _web(args: argparse.Namespace) -> None:
         if args.demo:
             await hub.start()
         else:
+            for lease in store.active_maintenance_leases():
+                hub.reserve_maintenance_endpoint(dict(lease["endpoint"]))
             for endpoint in args.tcp:
                 host, port = _tcp_endpoint(endpoint)
                 await hub.add_tcp(host, port, pairing_token=args.pairing_token)
@@ -399,7 +401,10 @@ async def _ctl(args: argparse.Namespace) -> int:
                 return 0
 
             command = args.ctl_command
-            if command == "devices":
+            if command == "health":
+                async with session.get(base + "/v1/health", ssl=ssl_value) as response:
+                    _output(await _response_json(response), args.json)
+            elif command == "devices":
                 async with session.get(base + "/v1/devices", ssl=ssl_value) as response:
                     _output(await _response_json(response), args.json)
             elif command == "status":
@@ -420,6 +425,47 @@ async def _ctl(args: argparse.Namespace) -> int:
                         base + f"/v1/operations/{args.operation_id}", ssl=ssl_value
                     ) as response:
                         _output(await _response_json(response), args.json)
+            elif command == "maintenance-acquire":
+                url = base + f"/v1/devices/{args.device}/maintenance-leases"
+                async with session.post(
+                    url,
+                    json={
+                        "purpose": "recovery",
+                        "expected_version": args.expected_version,
+                        "wait_timeout": args.wait_timeout,
+                        "ttl_seconds": args.ttl_seconds,
+                    },
+                    ssl=ssl_value,
+                ) as response:
+                    _output(await _response_json(response), args.json)
+            elif command == "maintenance-status":
+                url = base + f"/v1/maintenance-leases/{args.lease_id}"
+                async with session.get(url, ssl=ssl_value) as response:
+                    _output(await _response_json(response), args.json)
+            elif command in {
+                "maintenance-renew",
+                "maintenance-complete",
+                "maintenance-abort",
+            }:
+                token = os.environ.get("ESP_IRIS_MAINTENANCE_TOKEN", "")
+                if not token:
+                    raise RuntimeError("ESP_IRIS_MAINTENANCE_TOKEN is required")
+                action = command.removeprefix("maintenance-")
+                url = base + f"/v1/maintenance-leases/{args.lease_id}/{action}"
+                body = (
+                    {"ttl_seconds": args.ttl_seconds}
+                    if command == "maintenance-renew"
+                    else {"timeout": args.timeout}
+                    if command == "maintenance-complete"
+                    else {}
+                )
+                async with session.post(
+                    url,
+                    json=body,
+                    headers={"X-Maintenance-Token": token},
+                    ssl=ssl_value,
+                ) as response:
+                    _output(await _response_json(response), args.json)
             elif command == "crash":
                 url = base + f"/v1/devices/{args.device}/crashes"
                 async with session.get(url, ssl=ssl_value) as response:
@@ -768,6 +814,7 @@ def build_parser() -> argparse.ArgumentParser:
     profile = commands.add_parser("profile")
     profile.add_argument("--make-default", action="store_true")
     commands.add_parser("devices")
+    commands.add_parser("health")
     status = commands.add_parser("status")
     status.add_argument("device")
     crash = commands.add_parser("crash")
@@ -831,6 +878,21 @@ def build_parser() -> argparse.ArgumentParser:
     ota_watch = commands.add_parser("ota-watch")
     ota_watch.add_argument("operation_id")
     ota_watch.add_argument("--interval", type=float, default=0.5)
+    maintenance_acquire = commands.add_parser("maintenance-acquire")
+    maintenance_acquire.add_argument("device")
+    maintenance_acquire.add_argument("--expected-version", default="")
+    maintenance_acquire.add_argument("--wait-timeout", type=float, default=30)
+    maintenance_acquire.add_argument("--ttl-seconds", type=float, default=300)
+    maintenance_status = commands.add_parser("maintenance-status")
+    maintenance_status.add_argument("lease_id")
+    maintenance_renew = commands.add_parser("maintenance-renew")
+    maintenance_renew.add_argument("lease_id")
+    maintenance_renew.add_argument("--ttl-seconds", type=float, default=300)
+    maintenance_complete = commands.add_parser("maintenance-complete")
+    maintenance_complete.add_argument("lease_id")
+    maintenance_complete.add_argument("--timeout", type=float, default=30)
+    maintenance_abort = commands.add_parser("maintenance-abort")
+    maintenance_abort.add_argument("lease_id")
     screenshot = commands.add_parser("screenshot")
     screenshot.add_argument("device")
     screenshot.add_argument("output")

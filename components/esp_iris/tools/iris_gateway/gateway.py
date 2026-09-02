@@ -5,8 +5,10 @@ import base64
 import contextlib
 import hashlib
 import json
+import os
 import pathlib
 import re
+import secrets
 import struct
 import time
 import uuid
@@ -38,7 +40,12 @@ from .http_support import (
 from .media import encode_media_image
 from .observability import MetricsRegistry, normalize_event
 from .openapi_contract import build_openapi
-from .operations import OperationCancelled, OperationManager, OperationOutcomeUnknown
+from .operations import (
+    DeviceMaintenance,
+    OperationCancelled,
+    OperationManager,
+    OperationOutcomeUnknown,
+)
 from .security import Actor, AuthManager
 from .store import GatewayStore
 from .system_update import (
@@ -52,6 +59,15 @@ CONSOLE_METHOD_NAME = "console.execute"
 CONSOLE_LINE_MAX_BYTES = 255
 OTA_VALIDATION_MODES = ("elf_sha256", "version")
 DEFAULT_OTA_VALIDATION_MODE = "elf_sha256"
+GATEWAY_API = {"major": 1, "minor": 1}
+GATEWAY_CAPABILITIES = ["device-maintenance-lease/v1"]
+ACTIVE_MAINTENANCE_STATES = {
+    "detached",
+    "flashing",
+    "reattaching",
+    "verifying",
+    "expired_quarantined",
+}
 
 
 def _require_ota_validation_mode(value: str) -> str:
@@ -128,6 +144,10 @@ class GatewayService:
         self.mode_transition = False
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self.operations = OperationManager(store, self.on_device_event, self.metrics)
+        self.host_id = str(store.get_setting("host_id") or uuid.uuid4())
+        store.set_setting("host_id", self.host_id)
+        for lease in store.active_maintenance_leases():
+            self.operations.restore_maintenance(str(lease["device_id"]))
         self.rpc_catalog = self._load_rpc_catalog()
 
     def attach_hub(self, hub: GatewayHub) -> None:
@@ -311,6 +331,214 @@ class GatewayService:
             data.extend(chunk)
         path = self.store.save_artifact(device_id, "coredump", bytes(data), "bin")
         return {"path": str(path), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+    @staticmethod
+    def _lease_public(lease: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in lease.items() if key != "token_hash"}
+
+    @staticmethod
+    def _lease_token_hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _authorized_lease(self, lease_id: str, token: str) -> dict[str, Any]:
+        lease = self.store.maintenance_lease(lease_id)
+        if lease is None:
+            raise KeyError(lease_id)
+        if not token or not secrets.compare_digest(
+            str(lease["token_hash"]), self._lease_token_hash(token)
+        ):
+            raise PermissionError("invalid maintenance lease token")
+        if (
+            lease["state"] in ACTIVE_MAINTENANCE_STATES
+            and time.time_ns() > int(lease["expires_ns"])
+            and lease["state"] != "expired_quarantined"
+        ):
+            lease = self.store.update_maintenance_lease(
+                lease_id,
+                state="expired_quarantined",
+                error="maintenance lease expired before completion",
+            )
+        return lease
+
+    async def acquire_maintenance(
+        self,
+        device_id: str,
+        actor: Actor,
+        *,
+        purpose: str,
+        expected_version: str,
+        wait_timeout: float,
+        ttl_seconds: float,
+    ) -> dict[str, Any]:
+        device_id = self.resolve_device(device_id)
+        await self.operations.acquire_maintenance(device_id, wait_timeout)
+        endpoint: dict[str, Any] | None = None
+        try:
+            before = await self.device_hub.status(device_id)
+            if str(before.get("device_id") or "") != device_id:
+                raise RuntimeError("device status did not confirm the requested Device ID")
+            previous_boot_id = before.get("boot_id")
+            if previous_boot_id in (None, ""):
+                raise RuntimeError("device status did not provide a Boot ID")
+            crash_report = await self.device_hub.crash_report(device_id)
+            crash_path = self.store.save_artifact(
+                device_id,
+                "crash-index",
+                (json.dumps(crash_report, ensure_ascii=False, indent=2) + "\n").encode(),
+                "json",
+            )
+            evidence: dict[str, Any] = {
+                "device_before": before,
+                "crash_index": str(crash_path),
+            }
+            if crash_report.get("core_dump_present") and crash_report.get("core_dump_valid"):
+                preserved = await self.preserve_coredump(device_id)
+                if preserved is None:
+                    raise RuntimeError("a valid core dump could not be preserved")
+                evidence["core_dump"] = preserved
+            endpoint = await self.device_hub.quiesce_device(device_id)
+            now = time.time_ns()
+            token = secrets.token_urlsafe(32)
+            lease = self.store.create_maintenance_lease(
+                {
+                    "lease_id": str(uuid.uuid4()),
+                    "device_id": device_id,
+                    "token_hash": self._lease_token_hash(token),
+                    "purpose": purpose,
+                    "state": "detached",
+                    "endpoint": endpoint,
+                    "evidence": evidence,
+                    "previous_boot_id": previous_boot_id,
+                    "expected_version": expected_version,
+                    "actor_type": actor.kind,
+                    "actor_name": actor.name,
+                    "created_ns": now,
+                    "expires_ns": now + int(max(30.0, ttl_seconds) * 1_000_000_000),
+                }
+            )
+            audit = self.store.add_audit(
+                actor.kind,
+                actor.name,
+                "maintenance.acquired",
+                {"lease_id": lease["lease_id"], "device_id": device_id, "purpose": purpose},
+            )
+            await self._broadcast_system(audit)
+            return {**self._lease_public(lease), "token": token}
+        except BaseException:
+            if endpoint is not None:
+                with contextlib.suppress(Exception):
+                    await self.device_hub.resume_maintenance_endpoint(str(endpoint["endpoint"]))
+            self.operations.release_maintenance(device_id)
+            raise
+
+    def maintenance_lease(self, lease_id: str) -> dict[str, Any]:
+        lease = self.store.maintenance_lease(lease_id)
+        if lease is None:
+            raise KeyError(lease_id)
+        return self._lease_public(lease)
+
+    def renew_maintenance(self, lease_id: str, token: str, ttl_seconds: float) -> dict[str, Any]:
+        lease = self._authorized_lease(lease_id, token)
+        if lease["state"] not in ACTIVE_MAINTENANCE_STATES:
+            raise RuntimeError("maintenance lease is already finished")
+        renewed = self.store.update_maintenance_lease(
+            lease_id,
+            state="flashing" if lease["state"] == "detached" else lease["state"],
+            expires_ns=time.time_ns() + int(max(30.0, ttl_seconds) * 1_000_000_000),
+        )
+        return self._lease_public(renewed)
+
+    async def finish_maintenance(
+        self,
+        lease_id: str,
+        token: str,
+        *,
+        abort: bool,
+        timeout: float,
+    ) -> dict[str, Any]:
+        lease = self._authorized_lease(lease_id, token)
+        if lease["state"] not in ACTIVE_MAINTENANCE_STATES:
+            return self._lease_public(lease)
+        endpoint = str(lease["endpoint"]["endpoint"])
+        device_id = str(lease["device_id"])
+        try:
+            self.store.update_maintenance_lease(lease_id, state="reattaching")
+            await self.device_hub.resume_maintenance_endpoint(endpoint)
+            if abort:
+                completed = self.store.update_maintenance_lease(
+                    lease_id, state="aborted", finished_ns=time.time_ns()
+                )
+                self.store.add_audit(
+                    "lease",
+                    lease_id,
+                    "maintenance.aborted",
+                    {"device_id": device_id},
+                )
+                return self._lease_public(completed)
+
+            self.store.update_maintenance_lease(lease_id, state="verifying")
+            deadline = asyncio.get_running_loop().time() + max(0.1, timeout)
+            last_status: dict[str, Any] | None = None
+            while asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.1)
+                matches = [
+                    item
+                    for item in self.device_hub.list_devices()
+                    if item.get("device_id") == device_id
+                ]
+                if len(matches) != 1:
+                    continue
+                last_status = await self.device_hub.status(device_id)
+                capabilities = last_status.get("capability_names", [])
+                current_boot_id = last_status.get("boot_id")
+                boot_changed = current_boot_id not in (None, "") and str(
+                    current_boot_id
+                ) != str(lease["previous_boot_id"])
+                version_matches = (
+                    not lease.get("expected_version")
+                    or last_status.get("app_version") == lease["expected_version"]
+                )
+                if (
+                    last_status.get("firmware_mode") == "recovery"
+                    and boot_changed
+                    and version_matches
+                    and isinstance(capabilities, list)
+                    and "ota" in capabilities
+                ):
+                    completed = self.store.update_maintenance_lease(
+                        lease_id,
+                        state="released",
+                        evidence_json={**lease.get("evidence", {}), "verification": last_status},
+                        finished_ns=time.time_ns(),
+                        error=None,
+                    )
+                    self.store.add_audit(
+                        "lease",
+                        lease_id,
+                        "maintenance.released",
+                        {"device_id": device_id, "boot_id": last_status.get("boot_id")},
+                    )
+                    return self._lease_public(completed)
+            raise RuntimeError(
+                "Recovery endpoint reattached but identity verification did not complete"
+                + (f": {last_status}" if last_status else "")
+            )
+        except BaseException as exc:
+            self.store.update_maintenance_lease(
+                lease_id,
+                state="verification_failed",
+                finished_ns=time.time_ns(),
+                error=str(exc),
+            )
+            self.store.add_audit(
+                "lease",
+                lease_id,
+                "maintenance.verification_failed",
+                {"device_id": device_id, "error": str(exc)},
+            )
+            raise
+        finally:
+            self.operations.release_maintenance(device_id)
 
     async def closed_loop_ota(
         self,
@@ -583,6 +811,10 @@ def create_app(service: GatewayService) -> web.Application:
             return _error(404, "not_found", str(exc))
         except LookupError as exc:
             return _error(503, "cached_state_unavailable", str(exc))
+        except PermissionError as exc:
+            return _error(403, "permission_denied", str(exc))
+        except DeviceMaintenance as exc:
+            return _error(423, "device_maintenance", str(exc))
         except OperationCancelled as exc:
             return _error(409, "operation_cancelled", str(exc))
         except OperationOutcomeUnknown as exc:
@@ -623,6 +855,13 @@ def create_app(service: GatewayService) -> web.Application:
             {
                 "status": "ok",
                 "instance_id": service.instance_id,
+                "host_id": service.host_id,
+                "gateway_api": GATEWAY_API,
+                "capabilities": GATEWAY_CAPABILITIES,
+                "esp_iris_version": "0.1.0",
+                "esp_iris_revision": os.environ.get(
+                    "ESP_IRIS_SOURCE_REVISION", "unknown"
+                ),
                 "mode": service.mode,
                 "demo": service.demo,
                 "authenticated_api": service.authentication_required(request),
@@ -719,6 +958,63 @@ def create_app(service: GatewayService) -> web.Application:
         return web.json_response(
             {"endpoints": service.device_hub.list_endpoints(), "demo": service.demo}
         )
+
+    def require_local_maintenance(request: web.Request) -> web.Response | None:
+        if _request_is_loopback(request):
+            return None
+        return _error(
+            403,
+            "remote_recovery_unsupported",
+            "device maintenance leases are available only to a local recovery executor",
+        )
+
+    async def maintenance_acquire(request: web.Request) -> web.Response:
+        denied = require_local_maintenance(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        lease = await service.acquire_maintenance(
+            request.match_info["device_id"],
+            _actor(request),
+            purpose=str(body.get("purpose") or "recovery"),
+            expected_version=str(body.get("expected_version") or ""),
+            wait_timeout=float(body.get("wait_timeout") or 30),
+            ttl_seconds=float(body.get("ttl_seconds") or 300),
+        )
+        return web.json_response({"lease": lease}, status=201)
+
+    async def maintenance_status(request: web.Request) -> web.Response:
+        denied = require_local_maintenance(request)
+        if denied is not None:
+            return denied
+        return web.json_response(
+            {"lease": service.maintenance_lease(request.match_info["lease_id"])}
+        )
+
+    async def maintenance_renew(request: web.Request) -> web.Response:
+        denied = require_local_maintenance(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        lease = service.renew_maintenance(
+            request.match_info["lease_id"],
+            request.headers.get("X-Maintenance-Token", ""),
+            float(body.get("ttl_seconds") or 300),
+        )
+        return web.json_response({"lease": lease})
+
+    async def maintenance_finish(request: web.Request) -> web.Response:
+        denied = require_local_maintenance(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        lease = await service.finish_maintenance(
+            request.match_info["lease_id"],
+            request.headers.get("X-Maintenance-Token", ""),
+            abort=request.match_info["action"] == "abort",
+            timeout=float(body.get("timeout") or 30),
+        )
+        return web.json_response({"lease": lease})
 
     async def status(request: web.Request) -> web.Response:
         return web.json_response(await service.current_status(request.match_info["device_id"]))
@@ -1428,6 +1724,19 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_put("/v1/mode", mode)
     app.router.add_get("/v1/devices", devices)
     app.router.add_get("/v1/endpoints", endpoints)
+    app.router.add_post(
+        "/v1/devices/{device_id}/maintenance-leases", maintenance_acquire
+    )
+    app.router.add_get(
+        "/v1/maintenance-leases/{lease_id}", maintenance_status
+    )
+    app.router.add_post(
+        "/v1/maintenance-leases/{lease_id}/renew", maintenance_renew
+    )
+    app.router.add_post(
+        "/v1/maintenance-leases/{lease_id}/{action:complete|abort}",
+        maintenance_finish,
+    )
     app.router.add_get("/v1/devices/{device_id}", status)
     app.router.add_delete("/v1/devices/{device_id}", remove_device)
     app.router.add_patch("/v1/devices/{device_id}/alias", alias)

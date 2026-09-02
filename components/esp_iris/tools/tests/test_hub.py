@@ -2,7 +2,6 @@ import asyncio
 import struct
 
 import pytest
-
 from iris_gateway.hub import IrisHub, _firmware_mode_from_identity
 from iris_gateway.protocol import (
     Channel,
@@ -15,9 +14,10 @@ from iris_gateway.protocol import (
 
 
 class SupervisorLink:
-    endpoint = "fake:supervisor"
-
-    def __init__(self, session_id: int, boot_id: int = 7) -> None:
+    def __init__(
+        self, session_id: int, boot_id: int = 7, endpoint: str = "fake:supervisor"
+    ) -> None:
+        self.endpoint = endpoint
         self.incoming: asyncio.Queue[bytes] = asyncio.Queue()
         self.writes: list[bytes] = []
         self.closed = False
@@ -105,6 +105,39 @@ def test_supervisor_retries_and_classifies_same_boot_as_reconnect() -> None:
         assert hub.list_endpoints()[0]["state"] == "ready"
         await hub.close()
         assert all(link.closed for link in links)
+
+    asyncio.run(scenario())
+
+
+def test_quiesce_retains_endpoint_lock_and_resume_restarts_only_that_supervisor() -> None:
+    async def scenario() -> None:
+        hub = IrisHub("test", reconnect_min_seconds=0.001, reconnect_max_seconds=0.005)
+        links: list[SupervisorLink] = []
+
+        endpoint = "usb:fake-supervisor"
+
+        async def opener() -> SupervisorLink:
+            link = SupervisorLink(0x2000 + len(links), endpoint=endpoint)
+            links.append(link)
+            return link
+
+        hub._add_supervisor(endpoint, opener)
+        for _ in range(100):
+            if hub.list_devices():
+                break
+            await asyncio.sleep(0.002)
+        device_id = hub.list_devices()[0]["device_id"]
+        detached = await hub.quiesce_device(device_id)
+        assert detached["state"] == "maintenance_detached"
+        assert endpoint in hub._locks
+        assert endpoint not in hub._endpoint_tasks
+        await hub.resume_maintenance_endpoint(endpoint)
+        for _ in range(100):
+            if hub.list_devices():
+                break
+            await asyncio.sleep(0.002)
+        assert hub.list_devices()[0]["device_id"] == device_id
+        await hub.close()
 
     asyncio.run(scenario())
 

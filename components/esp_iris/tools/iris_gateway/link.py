@@ -69,9 +69,14 @@ class TcpLink(Link):
 
 
 class SerialLink(Link):
-    def __init__(self, port: str, serial_port: SerialPort) -> None:
+    def __init__(
+        self, port: str, serial_port: SerialPort, *, endpoint: str | None = None
+    ) -> None:
         self.port = port
-        self.endpoint = f"usb:{os.path.realpath(port)}"
+        # Discovery prefers a stable by-path identity. Keep that identity
+        # instead of resolving it to a transient tty/COM endpoint so the same
+        # supervisor survives firmware re-enumeration.
+        self.endpoint = endpoint or f"usb:{port}"
         self._serial = serial_port
         self._read_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
@@ -84,6 +89,7 @@ class SerialLink(Link):
         port: str,
         *,
         hupcl: bool | None = None,
+        endpoint: str | None = None,
     ) -> SerialLink:
         import serial
 
@@ -113,7 +119,7 @@ class SerialLink(Link):
             return serial_port
 
         serial_port = await asyncio.to_thread(open_port)
-        return cls(port, serial_port)
+        return cls(port, serial_port, endpoint=endpoint)
 
     def _read_batch(self, size: int) -> bytes:
         if size <= 0:

@@ -97,7 +97,40 @@ def _migration_3(db: sqlite3.Connection) -> None:
         )
 
 
-MIGRATIONS: tuple[Migration, ...] = (_migration_1, _migration_2, _migration_3)
+def _migration_4(db: sqlite3.Connection) -> None:
+    db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS maintenance_leases (
+            lease_id TEXT PRIMARY KEY,
+            device_id TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            state TEXT NOT NULL,
+            endpoint_json TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            previous_boot_id TEXT,
+            expected_version TEXT,
+            actor_type TEXT NOT NULL,
+            actor_name TEXT NOT NULL,
+            created_ns INTEGER NOT NULL,
+            expires_ns INTEGER NOT NULL,
+            finished_ns INTEGER,
+            error TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS maintenance_one_active_per_device
+            ON maintenance_leases(device_id)
+            WHERE state IN ('detached', 'flashing', 'reattaching',
+                            'verifying', 'expired_quarantined');
+        """
+    )
+
+
+MIGRATIONS: tuple[Migration, ...] = (
+    _migration_1,
+    _migration_2,
+    _migration_3,
+    _migration_4,
+)
 LATEST_SCHEMA_VERSION = len(MIGRATIONS)
 
 

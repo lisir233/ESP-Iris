@@ -1,9 +1,8 @@
 import asyncio
 
 import pytest
-
 from iris_gateway.observability import MetricsRegistry
-from iris_gateway.operations import OperationManager
+from iris_gateway.operations import DeviceMaintenance, OperationManager
 from iris_gateway.security import Actor
 from iris_gateway.state_machine import StateTransitionError
 from iris_gateway.store import GatewayStore
@@ -69,6 +68,57 @@ def test_observe_transition_cancels_queued_operation(tmp_path) -> None:
         manager._pending["queued"] = _Pending("queued", "device-a")
         assert await manager.cancel_queued() == 1
         assert store.operation("queued")["status"] == "cancelled"
+        store.close()
+
+    asyncio.run(scenario())
+
+
+def test_maintenance_barrier_drains_one_device_and_rejects_later_work(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+
+        async def sink(event):
+            del event
+
+        manager = OperationManager(store, sink)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def existing() -> dict[str, bool]:
+            started.set()
+            await release.wait()
+            return {"ok": True}
+
+        running = asyncio.create_task(
+            manager.execute(
+                "device-a", Actor("agent", "test"), "firmware.ota", {}, existing
+            )
+        )
+        await started.wait()
+        maintenance = asyncio.create_task(manager.acquire_maintenance("device-a", 1))
+        await asyncio.sleep(0)
+        with pytest.raises(DeviceMaintenance):
+            await manager.execute(
+                "device-a",
+                Actor("agent", "test"),
+                "rpc.raw",
+                {},
+                lambda: asyncio.sleep(0),
+            )
+        other, _, _ = await manager.execute(
+            "device-b",
+            Actor("agent", "test"),
+            "rpc.raw",
+            {},
+            lambda: asyncio.sleep(0, result={"ok": True}),
+        )
+        assert other["status"] == "succeeded"
+        release.set()
+        await running
+        await maintenance
+        assert manager.maintenance_state("device-a") == "active"
+        manager.release_maintenance("device-a")
+        assert manager.maintenance_state("device-a") is None
         store.close()
 
     asyncio.run(scenario())

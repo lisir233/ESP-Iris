@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
-import os
 import struct
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -123,6 +122,8 @@ class IrisHub:
         self._endpoint_tasks: dict[str, asyncio.Task[None]] = {}
         self._locks: dict[str, EndpointLock] = {}
         self._endpoint_states: dict[str, dict[str, Any]] = {}
+        self._endpoint_configs: dict[str, tuple[LinkOpener, str | None]] = {}
+        self._maintenance_endpoints: set[str] = set()
         self._discovery_task: asyncio.Task[None] | None = None
         self._mdns_discovery: IrisMdnsDiscovery | None = None
         self._mdns_services: dict[str, str] = {}
@@ -165,15 +166,30 @@ class IrisHub:
         firmware_mode: str | None = None,
         *,
         usb_serial_jtag: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
-        endpoint = f"usb:{os.path.realpath(port)}"
+        metadata = dict(metadata or {})
+        location = str(metadata.get("location") or "")
+        serial_number = str(metadata.get("serial_number") or "")
+        endpoint = (
+            f"usb:location={location}"
+            if location
+            else f"usb:serial={serial_number}"
+            if serial_number
+            else f"usb:{port}"
+        )
 
         async def opener() -> Link:
+            current_port = str(
+                self._endpoint_states.get(endpoint, {}).get("path") or port
+            )
             if usb_serial_jtag:
-                return await SerialLink.open(port, hupcl=False)
-            return await SerialLink.open(port)
+                return await SerialLink.open(
+                    current_port, hupcl=False, endpoint=endpoint
+                )
+            return await SerialLink.open(current_port, endpoint=endpoint)
 
-        self._add_supervisor(endpoint, opener)
+        self._add_supervisor(endpoint, opener, metadata=metadata)
         if firmware_mode is None:
             lowered = port.lower()
             if "recovery" in lowered:
@@ -200,24 +216,39 @@ class IrisHub:
     ) -> None:
         if self._closing:
             raise RuntimeError("ESP-Iris Hub is closing")
+        self._endpoint_configs[endpoint] = (opener, pairing_token)
+        state = self._endpoint_states.setdefault(
+            endpoint,
+            {
+                "endpoint": endpoint,
+                "state": "waiting",
+                "attempt": 0,
+                "error": None,
+                "device_id": None,
+                "updated_monotonic_ns": time.monotonic_ns(),
+            },
+        )
+        state.update(metadata or {})
         if endpoint in self._endpoint_tasks:
             return
-        lock = EndpointLock(endpoint)
-        try:
-            lock.acquire()
-        except BaseException:
-            lock.close()
-            raise
-        self._locks[endpoint] = lock
-        self._endpoint_states[endpoint] = {
-            "endpoint": endpoint,
-            "state": "waiting",
-            "attempt": 0,
-            "error": None,
-            "device_id": None,
-            "updated_monotonic_ns": time.monotonic_ns(),
-            **(metadata or {}),
-        }
+        if endpoint in self._maintenance_endpoints:
+            state["state"] = "maintenance_detached"
+            state["updated_monotonic_ns"] = time.monotonic_ns()
+            return
+        if endpoint not in self._locks:
+            lock = EndpointLock(endpoint)
+            try:
+                lock.acquire()
+            except BaseException:
+                lock.close()
+                raise
+            self._locks[endpoint] = lock
+        state.update(
+            state="waiting",
+            attempt=0,
+            error=None,
+            updated_monotonic_ns=time.monotonic_ns(),
+        )
         self._endpoint_tasks[endpoint] = asyncio.create_task(
             self._supervise(endpoint, opener, pairing_token),
             name=f"iris-supervisor-{endpoint}",
@@ -255,6 +286,15 @@ class IrisHub:
                             usb_serial_jtag=(
                                 device.transport == "usb_serial_jtag"
                             ),
+                            metadata={
+                                "path": device.path,
+                                "device_path": device.device,
+                                "vid": device.vid,
+                                "pid": device.pid,
+                                "serial_number": device.serial_number,
+                                "product": device.product,
+                                "location": device.location,
+                            },
                         )
                 await asyncio.sleep(interval_seconds)
 
@@ -339,6 +379,86 @@ class IrisHub:
         if lock is not None:
             lock.close()
         self._endpoint_states.pop(endpoint, None)
+        self._endpoint_configs.pop(endpoint, None)
+        self._maintenance_endpoints.discard(endpoint)
+
+    async def quiesce_device(self, device_id: str) -> dict[str, Any]:
+        """Close one local USB session while retaining its cross-process lock."""
+
+        session = self.get(device_id)
+        endpoint = session.link.endpoint
+        if not endpoint.startswith("usb:"):
+            raise RuntimeError("host maintenance is supported only for local USB devices")
+        state = self._endpoint_states.get(endpoint)
+        if state is None:
+            raise RuntimeError("device endpoint state is unavailable")
+        self._maintenance_endpoints.add(endpoint)
+        task = self._endpoint_tasks.pop(endpoint, None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._devices.pop(device_id, None)
+        state.update(
+            state="maintenance_detached",
+            device_id=device_id,
+            error=None,
+            updated_monotonic_ns=time.monotonic_ns(),
+        )
+        await self._on_event(
+            {
+                "kind": "connection",
+                "connection_state": "maintenance_detached",
+                "device_id": device_id,
+                "boot_id": session.info.boot_id if session.info else None,
+                "session_id": session.info.session_id if session.info else None,
+                "endpoint": endpoint,
+                "host_receive_monotonic_ns": time.monotonic_ns(),
+                "host_receive_wall_ns": time.time_ns(),
+            }
+        )
+        return state.copy()
+
+    def reserve_maintenance_endpoint(self, endpoint_state: dict[str, Any]) -> None:
+        """Quarantine an endpoint restored from a durable maintenance lease."""
+
+        endpoint = str(endpoint_state["endpoint"])
+        if not endpoint.startswith("usb:"):
+            return
+        self._maintenance_endpoints.add(endpoint)
+        self._endpoint_states[endpoint] = {
+            **endpoint_state,
+            "state": "maintenance_detached",
+            "updated_monotonic_ns": time.monotonic_ns(),
+        }
+        if endpoint not in self._locks:
+            lock = EndpointLock(endpoint)
+            lock.acquire()
+            self._locks[endpoint] = lock
+        port = str(endpoint_state.get("path") or endpoint.removeprefix("usb:"))
+        usb_serial_jtag = endpoint_state.get("transport_name") == "USB Serial/JTAG"
+
+        async def opener() -> Link:
+            current_port = str(
+                self._endpoint_states.get(endpoint, {}).get("path") or port
+            )
+            return await SerialLink.open(
+                current_port,
+                hupcl=False if usb_serial_jtag else None,
+                endpoint=endpoint,
+            )
+
+        self._endpoint_configs[endpoint] = (opener, None)
+
+    async def resume_maintenance_endpoint(self, endpoint: str) -> None:
+        if endpoint not in self._maintenance_endpoints:
+            raise RuntimeError("device endpoint is not reserved for maintenance")
+        try:
+            opener, pairing_token = self._endpoint_configs[endpoint]
+        except KeyError as exc:
+            raise RuntimeError("device endpoint cannot be reopened") from exc
+        self._maintenance_endpoints.remove(endpoint)
+        self._add_supervisor(endpoint, opener, pairing_token=pairing_token)
 
     def _set_endpoint_state(
         self,
@@ -851,6 +971,8 @@ class IrisHub:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self._endpoint_tasks.clear()
+        self._endpoint_configs.clear()
+        self._maintenance_endpoints.clear()
         self._mirror_states.clear()
         for lock in self._locks.values():
             lock.close()

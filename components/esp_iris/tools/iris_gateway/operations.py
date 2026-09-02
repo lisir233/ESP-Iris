@@ -23,6 +23,10 @@ class OperationOutcomeUnknown(RuntimeError):
     pass
 
 
+class DeviceMaintenance(RuntimeError):
+    """Raised when a device is reserved for host-side maintenance."""
+
+
 @dataclasses.dataclass(slots=True)
 class _Pending:
     operation_id: str
@@ -59,7 +63,43 @@ class OperationManager:
         self._pending: dict[str, _Pending] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._submission_ids: set[str] = set()
+        self._maintenance_pending: set[str] = set()
+        self._maintenance_active: set[str] = set()
         self.metrics = metrics or MetricsRegistry()
+
+    def maintenance_state(self, device_id: str) -> str | None:
+        if device_id in self._maintenance_active:
+            return "active"
+        if device_id in self._maintenance_pending:
+            return "pending"
+        return None
+
+    async def acquire_maintenance(self, device_id: str, timeout: float) -> None:
+        """Drain earlier work and atomically block later work for one device."""
+
+        if self.maintenance_state(device_id) is not None:
+            raise DeviceMaintenance(f"device {device_id} already has maintenance pending")
+        self._maintenance_pending.add(device_id)
+        lock = self._locks[device_id]
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=max(0.1, timeout))
+        except BaseException:
+            self._maintenance_pending.discard(device_id)
+            raise
+        self._maintenance_pending.discard(device_id)
+        self._maintenance_active.add(device_id)
+
+    def restore_maintenance(self, device_id: str) -> None:
+        """Restore the gate after a Gateway restart without opening the endpoint."""
+
+        self._maintenance_active.add(device_id)
+
+    def release_maintenance(self, device_id: str) -> None:
+        self._maintenance_pending.discard(device_id)
+        self._maintenance_active.discard(device_id)
+        lock = self._locks.get(device_id)
+        if lock is not None and lock.locked():
+            lock.release()
 
     def _transition(
         self, operation_id: str, status: str, **changes: Any
@@ -89,6 +129,7 @@ class OperationManager:
         ]
         return {
             "device_id": device_id,
+            "maintenance": self.maintenance_state(device_id),
             "running": [item.operation_id for item in items if item.running],
             "queued": [
                 item.operation_id
@@ -154,6 +195,10 @@ class OperationManager:
     ) -> tuple[dict[str, Any], bool]:
         """Queue an operation and return immediately while it runs in background."""
 
+        if self.maintenance_state(device_id) is not None:
+            raise DeviceMaintenance(
+                f"device {device_id} is reserved for host-side maintenance"
+            )
         operation_id = operation_id or str(uuid.uuid4())
         existing = self.store.operation(operation_id)
         if existing is not None:
@@ -231,6 +276,10 @@ class OperationManager:
         serialized: bool = True,
         result_summary: Callable[[Any], Any] | None = None,
     ) -> tuple[dict[str, Any], Any, bool]:
+        if self.maintenance_state(device_id) is not None:
+            raise DeviceMaintenance(
+                f"device {device_id} is reserved for host-side maintenance"
+            )
         operation_id = operation_id or str(uuid.uuid4())
         queue_position = sum(
             1
