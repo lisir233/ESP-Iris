@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include "nvs.h"
 #include "psa/crypto.h"
+#include "sdkconfig.h"
 
 #define IRIS_SERVICE_STATE_MAGIC 0x49525356U
 #define IRIS_JOB_MAGIC 0x49524a42U
@@ -142,6 +143,43 @@ static iris_service_state_t *service_state(bool create)
 static bool valid_state(const iris_service_state_t *state)
 {
     return state != NULL && state->magic == IRIS_SERVICE_STATE_MAGIC;
+}
+
+esp_err_t esp_iris_ota_get_status(esp_iris_ota_status_t *out_status)
+{
+    if (out_status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(out_status, 0, sizeof(*out_status));
+#if CONFIG_ESP_IRIS_OTA
+    iris_service_state_t *state = service_state(false);
+    if (!valid_state(state)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    esp_iris_job_handle_t job;
+    taskENTER_CRITICAL(&s_services_lock);
+    job = state->ota.job;
+    out_status->total_size = state->ota.total_size;
+    out_status->received_size = state->ota.received;
+    out_status->active = state->ota.active;
+    taskEXIT_CRITICAL(&s_services_lock);
+
+    if (job != NULL) {
+        esp_iris_job_info_t info;
+        const esp_err_t err = esp_iris_job_get_info(job, &info);
+        if (err != ESP_OK) {
+            return err;
+        }
+        out_status->job_id = info.id;
+        out_status->progress_permille = info.progress_permille;
+        out_status->state = info.state;
+        out_status->result = info.result;
+    }
+    return ESP_OK;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 static void maybe_release_state(iris_service_state_t *state)
@@ -569,7 +607,9 @@ static esp_err_t pairing_load_or_create(iris_service_state_t *state,
 {
 #if CONFIG_ESP_IRIS_TCP_PAIRING
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(IRIS_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    esp_err_t err = nvs_open_from_partition(
+        CONFIG_ESP_IRIS_NVS_PARTITION_NAME, IRIS_NVS_NAMESPACE,
+        NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         return err;
     }
@@ -680,7 +720,9 @@ esp_err_t esp_iris_pairing_token_set(const char token[65])
         return ESP_ERR_NO_MEM;
     }
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(IRIS_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    esp_err_t err = nvs_open_from_partition(
+        CONFIG_ESP_IRIS_NVS_PARTITION_NAME, IRIS_NVS_NAMESPACE,
+        NVS_READWRITE, &handle);
     if (err == ESP_OK) {
         err = nvs_set_blob(handle, IRIS_NVS_PAIR_TOKEN, parsed,
                            sizeof(parsed));

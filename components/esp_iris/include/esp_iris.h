@@ -86,6 +86,16 @@ typedef struct {
     bool cancel_requested;
 } esp_iris_job_info_t;
 
+typedef struct {
+    uint32_t job_id;
+    uint32_t total_size;
+    uint32_t received_size;
+    uint16_t progress_permille;
+    esp_iris_job_state_t state;
+    esp_err_t result;
+    bool active;
+} esp_iris_ota_status_t;
+
 typedef enum {
     ESP_IRIS_PIXEL_FORMAT_RGB565 = 1,
     ESP_IRIS_PIXEL_FORMAT_RGB888 = 2,
@@ -137,6 +147,7 @@ esp_err_t esp_iris_start(void);
 esp_err_t esp_iris_stop(void);
 bool esp_iris_is_started(void);
 esp_err_t esp_iris_get_status(esp_iris_status_t *out_status);
+esp_err_t esp_iris_ota_get_status(esp_iris_ota_status_t *out_status);
 
 /* Optional product lifecycle marker. State is replayed to a newly connected
  * PC session, so callers do not need to wait for a link. */

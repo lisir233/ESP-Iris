@@ -191,8 +191,9 @@ offset ACK、SHA-256、`fsync` 和 rename；只有底层 VFS 确实满足替换�
 ## 安全边界
 
 - USB 依赖物理访问，不执行链路配对。
-- Raw TCP 配对默认关闭；开启后 token 保存在 NVS 中，链路通过随机 challenge
-  证明持有 token，token 本身不在链路上传输。
+- Raw TCP 配对默认关闭；开启后 token 与稳定 Device ID 保存在
+  `CONFIG_ESP_IRIS_NVS_PARTITION_NAME` 选择的 NVS 分区中（默认 `nvs`），链路
+  通过随机 challenge 证明持有 token，token 本身不在链路上传输。
 - Gateway 默认允许 loopback 免登录；非 loopback 客户端需要开发者登录或
   命名 Agent Token。Agent Token 的文件权限分为 `files.read`、`files.write`
   和 `files.delete`，新 token 默认只有 `files.read`。

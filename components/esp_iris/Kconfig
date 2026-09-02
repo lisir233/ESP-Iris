@@ -6,6 +6,15 @@ config ESP_IRIS_ENABLE
 
 if ESP_IRIS_ENABLE
 
+config ESP_IRIS_NVS_PARTITION_NAME
+    string "NVS partition used for device identity and pairing state"
+    default "nvs"
+    help
+        Label of the NVS partition that stores the stable Device ID and TCP
+        pairing token. The partition table must contain an NVS partition with
+        this label. Keep the default for shared NVS, or select a product-owned
+        system metadata partition to isolate identity from application data.
+
 menu "Device transports"
 
 config ESP_IRIS_TRANSPORT_USB

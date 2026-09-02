@@ -166,7 +166,7 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 | Retained jobs | Created by the application | `CONFIG_ESP_IRIS_MAX_JOBS` |
 | Screen/image/audio | Idle until the host starts a stream | One `CONFIG_ESP_IRIS_MEDIA_LATEST_BYTES` buffer per active channel |
 | Crash evidence | Read-only when present | Chunked by `CONFIG_ESP_IRIS_CRASH_CHUNK_BYTES` |
-| TCP pairing | Disabled by default | One NVS token and challenge-HMAC state |
+| TCP pairing | Disabled by default | One token in `CONFIG_ESP_IRIS_NVS_PARTITION_NAME` and challenge-HMAC state |
 | OTA writer | Configurable; cross-project updates allowed by default | Chunked by `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES`; `CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` opts into matching the running project |
 | System inventory | Disabled until a read-only product provider registers | Actual protected-region hashes and last committed operation; no write callbacks |
 | System Update | Disabled until recovery registers a product backend | Optional product signature policy, `CONFIG_ESP_IRIS_SYSTEM_UPDATE_MAX_COMPONENTS`, bounded manifest/signature/chunk sizes, and no generic raw-Flash API |
@@ -174,6 +174,11 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 
 The component uses credit-based channels and a latest-chunk policy for media.
 A slow host cannot create an unbounded device-side queue.
+
+ESP-Iris stores its stable Device ID and TCP pairing token in the NVS partition
+selected by `CONFIG_ESP_IRIS_NVS_PARTITION_NAME` (default: `nvs`). Products may
+point this setting at a fixed system metadata partition to keep identity out of
+application NVS.
 
 Register only the directories that the product intentionally exposes, before
 calling `esp_iris_start()`:

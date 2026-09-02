@@ -5,6 +5,7 @@
 #include "esp_random.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 
 #define IRIS_NVS_NAMESPACE "esp_iris"
 #define IRIS_NVS_DEVICE_ID "device_id"
@@ -15,14 +16,16 @@ esp_err_t iris_identity_load_or_create(iris_runtime_t *runtime)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = nvs_flash_init();
+    esp_err_t err =
+        nvs_flash_init_partition(CONFIG_ESP_IRIS_NVS_PARTITION_NAME);
     if (err != ESP_OK) {
         /* Iris must never erase shared NVS as an implicit recovery action. */
         return err;
     }
 
     nvs_handle_t handle;
-    err = nvs_open(IRIS_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    err = nvs_open_from_partition(CONFIG_ESP_IRIS_NVS_PARTITION_NAME,
+                                  IRIS_NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         return err;
     }

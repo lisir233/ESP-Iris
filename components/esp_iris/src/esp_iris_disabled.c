@@ -28,6 +28,15 @@ esp_err_t esp_iris_get_status(esp_iris_status_t *out_status)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t esp_iris_ota_get_status(esp_iris_ota_status_t *out_status)
+{
+    if (out_status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(out_status, 0, sizeof(*out_status));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t esp_iris_mark_healthy(void)
 {
     return ESP_ERR_NOT_SUPPORTED;
