@@ -100,6 +100,7 @@ class DeviceSession:
     LOG_CREDIT_LOW_WATER = 128 * 1024
     AUTH_MISSING_TOKEN_DELAY_SECONDS = 0.5
     OTA_IN_FLIGHT_BYTES = 4096
+    OTA_BEGIN_TIMEOUT_SECONDS = 120.0
 
     def __init__(
         self,
@@ -762,7 +763,14 @@ class DeviceSession:
                     "partition": "",
                 }
             )
-        frame = await self._request(Channel.OTA, OtaType.BEGIN, begin, timeout)
+        # Older Recovery firmware erases the complete destination partition
+        # synchronously in BEGIN. Keep this request compatible with those
+        # images even though current firmware erases incrementally while
+        # processing sequential DATA frames.
+        begin_timeout = max(timeout, self.OTA_BEGIN_TIMEOUT_SECONDS)
+        frame = await self._request(
+            Channel.OTA, OtaType.BEGIN, begin, begin_timeout
+        )
         if frame.type != OtaType.BEGIN_RESPONSE or len(frame.payload) < 11:
             raise ProtocolError("unexpected OTA begin response")
         job_id, total_size, chunk_size = struct.unpack_from("<IIH", frame.payload)

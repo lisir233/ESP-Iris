@@ -191,6 +191,52 @@ def test_ota_end_timeout_is_reconciled_with_device_job() -> None:
     asyncio.run(scenario())
 
 
+def test_ota_begin_uses_extended_timeout_for_legacy_recovery() -> None:
+    async def scenario() -> None:
+        session = object.__new__(DeviceSession)
+        session._request_lock = asyncio.Lock()
+        calls: list[tuple[int, int, float]] = []
+
+        async def request(channel, type_, payload=b"", timeout=10.0):
+            del payload
+            calls.append((channel, type_, timeout))
+            if type_ == OtaType.BEGIN:
+                return Frame(
+                    channel=channel,
+                    type=OtaType.BEGIN_RESPONSE,
+                    payload=struct.pack("<IIHB", 81, 1, 1, 5) + b"ota_0",
+                )
+            if type_ == OtaType.END:
+                return Frame(
+                    channel=channel,
+                    type=OtaType.END_RESPONSE,
+                    payload=struct.pack("<Ii", 81, 0),
+                )
+            raise AssertionError(f"unexpected OTA request type {type_}")
+
+        async def request_unlocked(channel, type_, payload=b"", timeout=10.0):
+            calls.append((channel, type_, timeout))
+            assert type_ == OtaType.DATA
+            offset = struct.unpack_from("<I", payload)[0]
+            return Frame(
+                channel=channel,
+                type=OtaType.DATA_RESPONSE,
+                payload=struct.pack("<IHH", offset + 1, 900, 0),
+            )
+
+        session._request = request
+        session._request_unlocked = request_unlocked
+        await session.ota_update(b"x", timeout=0.01)
+
+        assert calls == [
+            (Channel.OTA, OtaType.BEGIN, DeviceSession.OTA_BEGIN_TIMEOUT_SECONDS),
+            (Channel.OTA, OtaType.DATA, 0.01),
+            (Channel.OTA, OtaType.END, 0.01),
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_ota_end_session_close_is_deferred_to_gateway_reconnect_validation() -> None:
     async def scenario() -> None:
         session = object.__new__(DeviceSession)

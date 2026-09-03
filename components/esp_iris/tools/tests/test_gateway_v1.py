@@ -43,6 +43,45 @@ def test_gateway_client_max_size_is_one_gibibyte(tmp_path) -> None:
     assert app._client_max_size == GATEWAY_CLIENT_MAX_SIZE
 
 
+def test_system_inventory_endpoint_returns_live_layout_hash(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path)
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/v1/devices/demo-a1b2c3d4/system-inventory"
+            )
+            assert response.status == 200
+            body = await response.json()
+            assert body["device_id"] == "demo-a1b2c3d4"
+            assert body["inventory"]["partition_table_sha256"] == "00" * 32
+
+            spec = await client.get("/v1/openapi.json")
+            assert (
+                "/v1/devices/{device_id}/system-inventory"
+                in (await spec.json())["paths"]
+            )
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
+def test_system_inventory_ctl_command_parses_device() -> None:
+    args = build_parser().parse_args(
+        ["ctl", "system-inventory", "device-a"]
+    )
+    assert args.ctl_command == "system-inventory"
+    assert args.device == "device-a"
+
+
 def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) -> None:
     async def scenario() -> None:
         store = GatewayStore(tmp_path)
@@ -116,6 +155,7 @@ def test_local_maintenance_lease_detaches_one_demo_device_and_aborts_cleanly(tmp
             assert health["gateway_api"]["major"] == 1
             assert "device-maintenance-lease/v1" in health["capabilities"]
             assert "physical-endpoint-maintenance-lease/v1" in health["capabilities"]
+            assert "system-inventory/v1" in health["capabilities"]
             response = await client.post(
                 "/v1/devices/demo-a1b2c3d4/maintenance-leases",
                 json={"purpose": "recovery", "ttl_seconds": 60},

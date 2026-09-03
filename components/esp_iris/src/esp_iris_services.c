@@ -1607,7 +1607,14 @@ static bool handle_ota(iris_runtime_t *runtime,
             ota->hash_active = err == ESP_OK;
         }
         if (err == ESP_OK) {
-            err = esp_ota_begin(partition, total_size, &ota->handle);
+            /*
+             * A full erase here can block the protocol worker for longer than
+             * the host's request deadline on large application partitions.
+             * OTA DATA is strictly sequential, so let esp_ota_write() erase
+             * sectors incrementally and keep BEGIN responsive.
+             */
+            err = esp_ota_begin(partition, OTA_WITH_SEQUENTIAL_WRITES,
+                                &ota->handle);
         }
         if (err != ESP_OK) {
             if (ota->job != NULL) {

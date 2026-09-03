@@ -411,6 +411,10 @@ async def _ctl(args: argparse.Namespace) -> int:
             elif command == "status":
                 async with session.get(base + f"/v1/devices/{args.device}", ssl=ssl_value) as response:
                     _output(await _response_json(response), args.json)
+            elif command == "system-inventory":
+                url = base + f"/v1/devices/{args.device}/system-inventory"
+                async with session.get(url, ssl=ssl_value) as response:
+                    _output(await _response_json(response), args.json)
             elif command in ("ota-status", "ota-watch"):
                 if command == "ota-watch":
                     result = await _operation_watch(
@@ -832,6 +836,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("health")
     status = commands.add_parser("status")
     status.add_argument("device")
+    system_inventory = commands.add_parser("system-inventory")
+    system_inventory.add_argument("device")
     crash = commands.add_parser("crash")
     crash.add_argument("device")
     coredump = commands.add_parser("coredump")

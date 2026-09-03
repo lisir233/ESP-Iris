@@ -64,6 +64,7 @@ GATEWAY_API = {"major": 1, "minor": 1}
 GATEWAY_CAPABILITIES = [
     "device-maintenance-lease/v1",
     "physical-endpoint-maintenance-lease/v1",
+    "system-inventory/v1",
 ]
 ACTIVE_MAINTENANCE_STATES = {
     "detached",
@@ -1725,6 +1726,11 @@ def create_app(service: GatewayService) -> web.Application:
             status=202,
         )
 
+    async def system_inventory(request: web.Request) -> web.Response:
+        device_id = service.resolve_device(request.match_info["device_id"])
+        inventory = await service.device_hub.system_update_inventory(device_id)
+        return web.json_response({"device_id": device_id, "inventory": inventory})
+
     async def system_update(request: web.Request) -> web.Response:
         blocked = service.require_develop()
         if blocked is not None:
@@ -1933,6 +1939,9 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_post("/v1/devices/{device_id}/input", input_event)
     app.router.add_post("/v1/devices/{device_id}/audio", audio_upload)
     app.router.add_post("/v1/devices/{device_id}/ota", ota)
+    app.router.add_get(
+        "/v1/devices/{device_id}/system-inventory", system_inventory
+    )
     app.router.add_post(
         "/v1/devices/{device_id}/system-update", system_update
     )
