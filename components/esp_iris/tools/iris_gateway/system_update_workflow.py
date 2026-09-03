@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from .contracts import GatewayHub
 from .firmware import inspect_firmware_image
 from .operations import OperationManager, OperationOutcomeUnknown
 from .system_update import SystemUpdateBundle, SystemUpdateComponentKind
 
-PreserveCoreDump = Callable[[str], Awaitable[dict[str, Any] | None]]
-ValidateIdentity = Callable[[dict[str, Any], dict[str, Any], str], dict[str, str]]
+PreserveCoreDump = Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
+ValidateIdentity = Callable[[Dict[str, Any], Dict[str, Any], str], Dict[str, str]]
 
 
 async def run_system_update(
@@ -139,7 +138,7 @@ async def run_system_update(
         while asyncio.get_running_loop().time() < deadline:
             try:
                 event = await asyncio.wait_for(queue.get(), 1.0)
-            except TimeoutError:
+            except (asyncio.TimeoutError, TimeoutError):
                 continue
             event_boot = event.get("boot_id")
             if event_boot is not None and event_boot != writer_boot:

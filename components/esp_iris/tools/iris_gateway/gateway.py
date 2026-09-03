@@ -840,7 +840,7 @@ class GatewayService:
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     event = await asyncio.wait_for(queue.get(), 1.0)
-                except TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     continue
                 if event.get("boot_id") != writer_boot and event.get("boot_id") is not None:
                     new_boot = event["boot_id"]
@@ -908,7 +908,7 @@ class GatewayService:
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     event = await asyncio.wait_for(queue.get(), 1.0)
-                except TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     continue
                 boot_id = event.get("boot_id")
                 if (
@@ -959,7 +959,7 @@ def create_app(service: GatewayService) -> web.Application:
             return _error(409, "operation_cancelled", str(exc))
         except OperationOutcomeUnknown as exc:
             return _error(409, "outcome_unknown", str(exc))
-        except TimeoutError as exc:
+        except (asyncio.TimeoutError, TimeoutError) as exc:
             return _error(504, "device_timeout", str(exc) or "device request timed out")
         except (RuntimeError, ConnectionError) as exc:
             return _error(409, "device_request_failed", str(exc))
@@ -1288,7 +1288,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def raw_rpc(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         body = await _json_body(request)
@@ -1325,7 +1325,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def structured_rpc(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         name = request.match_info["method"]
         method = next((item for item in service.rpc_catalog.get("methods", []) if item.get("name") == name), None)
@@ -1370,7 +1370,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def console(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await _json_body(request)
         line = body.get("line")
@@ -1437,7 +1437,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def job(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         job_id = int(request.match_info["job_id"], 0)
@@ -1455,7 +1455,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def restart(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await _json_body(request)
         device_id = service.resolve_device(request.match_info["device_id"])
@@ -1473,7 +1473,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def factory_recovery(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         if not hasattr(service.device_hub, "enter_recovery"):
@@ -1490,7 +1490,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def screenshot(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await _json_body(request)
         device_id = service.resolve_device(request.match_info["device_id"])
@@ -1521,7 +1521,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def mirror(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await _json_body(request)
         device_id = service.resolve_device(request.match_info["device_id"])
@@ -1584,7 +1584,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def input_event(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await _json_body(request)
         moves = body.get("moves", [])
@@ -1605,7 +1605,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def audio_upload(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         data = await request.read()
@@ -1631,7 +1631,7 @@ def create_app(service: GatewayService) -> web.Application:
         if request.method == "GET":
             return web.json_response({"artifacts": service.store.firmware_artifacts()})
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         reader = await request.multipart()
         parts: dict[str, bytes] = {}
@@ -1673,7 +1673,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def ota(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         execution_mode = request.query.get("execution_mode", "recovery")
@@ -1726,7 +1726,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def system_update(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         if request.content_type not in {
             "application/zip",
@@ -1768,7 +1768,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def crash_report(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         report = await service.device_hub.crash_report(device_id)
@@ -1800,7 +1800,7 @@ def create_app(service: GatewayService) -> web.Application:
 
     async def core_dump(request: web.Request) -> web.StreamResponse:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         artifact = await service.preserve_coredump(device_id)
@@ -1841,7 +1841,12 @@ def create_app(service: GatewayService) -> web.Application:
         dist = service.frontend_dist
         if dist and relative:
             candidate = (dist / relative).resolve()
-            if candidate.is_relative_to(dist.resolve()) and candidate.is_file():
+            try:
+                candidate.relative_to(dist.resolve())
+                within_dist = True
+            except ValueError:
+                within_dist = False
+            if within_dist and candidate.is_file():
                 cache_control = (
                     "public, max-age=31536000, immutable"
                     if relative.startswith("assets/")

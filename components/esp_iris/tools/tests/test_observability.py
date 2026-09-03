@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from iris_gateway.observability import MetricsRegistry, normalize_event
 
 

@@ -10,7 +10,7 @@ _SERIAL_PATH_DIRECTORIES = (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class IrisUsbDevice:
     path: str
     device: str

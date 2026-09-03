@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 
 from iris_gateway.demo import DemoHub

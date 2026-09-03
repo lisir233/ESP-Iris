@@ -16,7 +16,7 @@ installed as a Python package.
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.8 or newer
 - Linux, macOS, or Windows; real-board validation currently focuses on Linux
 - Node.js and npm when the Workbench must be built from source
 - A dedicated serial endpoint for USB transports
@@ -41,8 +41,13 @@ Create an isolated environment and install the runtime dependencies:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.txt"
+python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.lock"
 ```
+
+`requirements.lock` is shared across supported Python releases. Its PEP 508
+markers make pip select the validated packages for the active interpreter
+(including the Python 3.8-compatible aiohttp and zeroconf versions). This
+Gateway interpreter is independent of the interpreter required by ESP-IDF.
 
 The Registry archive includes the Workbench source but excludes generated
 `node_modules` and `dist` directories. Build it once before starting the

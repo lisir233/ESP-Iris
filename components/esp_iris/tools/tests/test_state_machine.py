@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import ctypes
 import pathlib
 import shutil
 import subprocess
 
 import pytest
+
 from iris_gateway.state_machine import (
     OperationState,
     SessionEvent,
@@ -17,6 +20,7 @@ COMPONENT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_operation_state_machine_accepts_progress_and_freezes_terminal_state() -> None:
+    assert str(OperationState.QUEUED) == "queued"
     assert operation_transition("queued", "running") is OperationState.RUNNING
     assert (
         operation_transition("running", "waiting_recovery")

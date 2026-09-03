@@ -7,11 +7,11 @@ authentication and release policy remain in ``system_update`` and Gateway.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import secrets
 import struct
-from collections.abc import Awaitable, Callable
-from typing import Any, Protocol
+from typing import Any, Awaitable, Callable, Dict, Protocol
 
 from .protocol import (
     Capability,
@@ -29,7 +29,7 @@ class ReadyInfo(Protocol):
 
 WaitReady = Callable[[float], Awaitable[ReadyInfo]]
 Request = Callable[[int, int, bytes, float], Awaitable[Frame]]
-ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 def decode_system_update_status(payload: bytes) -> dict[str, Any]:
@@ -146,7 +146,7 @@ async def perform_system_update(
         frame = await request(
             Channel.SYSTEM_UPDATE, SystemUpdateType.BEGIN, begin, timeout
         )
-    except TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError):
         status = await system_update_status(request, timeout=timeout)
         if (
             status["operation_id"] != identifier.hex()
@@ -224,7 +224,7 @@ async def perform_system_update(
                         message,
                         timeout,
                     )
-                except TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     status = await system_update_status(request, timeout=timeout)
                     if (
                         status["operation_id"] != identifier.hex()
@@ -305,7 +305,7 @@ async def perform_system_update(
                 identifier,
                 timeout,
             )
-        except TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             status = await system_update_status(request, timeout=timeout)
             if (
                 status["operation_id"] != identifier.hex()

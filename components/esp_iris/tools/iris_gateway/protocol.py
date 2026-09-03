@@ -239,7 +239,7 @@ class TlvTag(enum.IntEnum):
     OTA_PARTITION = 0x46
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass
 class Frame:
     channel: int
     type: int

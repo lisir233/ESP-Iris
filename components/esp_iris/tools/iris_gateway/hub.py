@@ -6,9 +6,10 @@ import contextlib
 import os
 import struct
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from collections.abc import AsyncIterator
+from typing import Any, Awaitable, Callable, Dict
 
+from .compat import remove_prefix, to_thread
 from .discovery import discover_iris_usb_devices
 from .link import EndpointLock, Link, SerialLink, TcpLink
 from .mdns_discovery import IrisMdnsDevice, IrisMdnsDiscovery
@@ -17,7 +18,7 @@ from .session import DeviceSession
 from .system_update import SystemUpdateBundle
 
 LinkOpener = Callable[[], Awaitable[Link]]
-EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
+EventCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 SCREEN_CHANNEL = 3
 RAW_MEDIA_FORMATS = {1, 2}
 ENCODED_MEDIA_FORMATS = {3, 4}
@@ -55,10 +56,10 @@ async def _next_complete_screen_frame(
     ):
         raise ValueError("screen mirror has an empty frame description")
 
-    frame_id: int | None = None
-    next_y = base_y
-    data = bytearray()
-    async with asyncio.timeout(timeout):
+    async def receive() -> tuple[dict[str, int], bytes]:
+        frame_id: int | None = None
+        next_y = base_y
+        data = bytearray()
         while True:
             event = await queue.get()
             if stream_id is not None and int(event.get("stream_id", -1)) != stream_id:
@@ -103,6 +104,8 @@ async def _next_complete_screen_frame(
                 return full, bytes(data)
             if next_y > base_y + height:
                 raise ValueError("screen mirror tile exceeds the frame boundary")
+
+    return await asyncio.wait_for(receive(), timeout=timeout)
 
 
 class IrisHub:
@@ -267,7 +270,7 @@ class IrisHub:
         async def discover_loop() -> None:
             while True:
                 try:
-                    devices = await asyncio.to_thread(
+                    devices = await to_thread(
                         discover_iris_usb_devices,
                         include_usb_serial_jtag=include_usb_serial_jtag,
                     )
@@ -535,7 +538,7 @@ class IrisHub:
             lock = EndpointLock(endpoint)
             lock.acquire()
             self._locks[endpoint] = lock
-        port = str(endpoint_state.get("path") or endpoint.removeprefix("usb:"))
+        port = str(endpoint_state.get("path") or remove_prefix(endpoint, "usb:"))
         usb_serial_jtag = endpoint_state.get("transport_name") == "USB Serial/JTAG"
 
         async def opener() -> Link:

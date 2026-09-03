@@ -380,7 +380,7 @@ CLI 和 API 应支持：
 - Raw TCP 为默认可移植传输，网络接口由产品应用创建和管理；
 - Application USB CDC0 当前限定 ESP32-S31；
 - USB Serial/JTAG 依赖目标芯片相应 SoC 能力；
-- Gateway 要求 Python 3.11 或以上；
+- Gateway 要求 Python 3.8 或以上；单个条件锁按当前解释器选择兼容依赖；其解释器与 ESP-IDF 工具环境各自满足版本约束；
 - Gateway 可运行于 Linux、macOS 或 Windows，当前真实设备验证重点为 Linux；
 - Workbench 源码构建需要 Node.js 与 npm。
 

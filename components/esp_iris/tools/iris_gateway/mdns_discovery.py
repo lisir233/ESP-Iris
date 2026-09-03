@@ -14,7 +14,7 @@ IRIS_MDNS_TYPE = "_esp-iris._tcp.local."
 _DEVICE_ID = re.compile(r"[0-9a-f]{32}\Z")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class IrisMdnsDevice:
     service_name: str
     device_id: str

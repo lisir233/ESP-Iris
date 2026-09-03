@@ -57,7 +57,7 @@ Kconfig and are activated only when configured or used.
 | Raw TCP | Portable default; the application owns Wi-Fi/Ethernet and addressing |
 | Application USB CDC0 | ESP32-S31; ESP-Iris owns TinyUSB CDC0 |
 | USB Serial/JTAG | Targets with `SOC_USB_SERIAL_JTAG_SUPPORTED`; the serial channel cannot also be the console |
-| Gateway | Python 3.11 or newer; Linux is the primary real-device validation platform |
+| Gateway | Python 3.8 or newer; Linux is the primary real-device validation platform |
 | Workbench | A current Node.js/npm environment is required to build the bundled React source |
 
 One or more device transports may be compiled into an image. When several are
@@ -133,7 +133,7 @@ In a repository checkout:
 ESP_IRIS_COMPONENT_DIR=components/esp_iris
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.txt"
+python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.lock"
 
 cd "$ESP_IRIS_COMPONENT_DIR/tools/frontend"
 npm ci
@@ -142,6 +142,12 @@ cd -
 
 python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web
 ```
+
+The single lock file uses Python-version markers, so pip selects the validated
+dependency set for the active interpreter. Recreate the environment when its
+Python major/minor changes. This Gateway runtime is independent of the Python
+version required by the selected ESP-IDF release; keep the ESP-IDF tool
+environment on the version required by that release.
 
 For a managed installation, set `ESP_IRIS_COMPONENT_DIR` to
 `managed_components/lisir233__esp_iris` instead. Open

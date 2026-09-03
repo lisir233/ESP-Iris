@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from iris_gateway.openapi_contract import build_openapi
 
 

@@ -9,6 +9,8 @@ import pathlib
 import tempfile
 from typing import Protocol
 
+from .compat import to_thread
+
 
 class SerialPort(Protocol):
     @property
@@ -118,7 +120,7 @@ class SerialLink(Link):
                 raise
             return serial_port
 
-        serial_port = await asyncio.to_thread(open_port)
+        serial_port = await to_thread(open_port)
         return cls(port, serial_port, endpoint=endpoint)
 
     def _read_batch(self, size: int) -> bytes:
@@ -138,14 +140,14 @@ class SerialLink(Link):
                 if self._closing or not self._serial.is_open:
                     return b""
                 read_task = asyncio.create_task(
-                    asyncio.to_thread(self._read_batch, size)
+                    to_thread(self._read_batch, size)
                 )
                 try:
                     data = await asyncio.shield(read_task)
                 except asyncio.CancelledError:
                     cancel_read = getattr(self._serial, "cancel_read", None)
                     if cancel_read is not None:
-                        await asyncio.to_thread(cancel_read)
+                        await to_thread(cancel_read)
                     with contextlib.suppress(Exception):
                         await read_task
                     raise
@@ -159,7 +161,7 @@ class SerialLink(Link):
         async with self._write_lock:
             if self._closing or not self._serial.is_open:
                 raise ConnectionError("ESP-Iris serial link is closed")
-            written = await asyncio.to_thread(self._serial.write, data)
+            written = await to_thread(self._serial.write, data)
         if written != len(data):
             raise OSError(f"short serial write: {written}/{len(data)}")
 
@@ -171,10 +173,10 @@ class SerialLink(Link):
             cancel_read = getattr(self._serial, "cancel_read", None)
             if cancel_read is not None:
                 with contextlib.suppress(Exception):
-                    await asyncio.to_thread(cancel_read)
+                    await to_thread(cancel_read)
             async with self._read_lock, self._write_lock:
                 if self._serial.is_open:
-                    await asyncio.to_thread(self._serial.close)
+                    await to_thread(self._serial.close)
 
 
 class EndpointLock:

@@ -74,7 +74,7 @@ def _generate(cert_path: pathlib.Path, key_path: pathlib.Path) -> None:
             x509.NameAttribute(NameOID.COMMON_NAME, hostname),
         ]
     )
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.now(datetime.timezone.utc)
     certificate = (
         x509.CertificateBuilder()
         .subject_name(subject)

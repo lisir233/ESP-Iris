@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import pathlib
 import random
@@ -139,6 +141,11 @@ def test_decoder_fuzz_resynchronizes_to_next_valid_frame() -> None:
     expected = encode_frame(Frame(channel=0, type=3, payload=b"recovered"))
     decoder = FrameDecoder()
     for _ in range(1000):
-        noise = randomizer.randbytes(randomizer.randrange(0, 128))
+        noise_size = randomizer.randrange(0, 128)
+        noise = (
+            randomizer.getrandbits(noise_size * 8).to_bytes(noise_size, "little")
+            if noise_size
+            else b""
+        )
         frames = decoder.feed(noise + b"\x00" + expected)
         assert frames[-1].payload == b"recovered"

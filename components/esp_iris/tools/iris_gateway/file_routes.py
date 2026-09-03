@@ -78,30 +78,30 @@ def register_file_routes(app: web.Application, service: Any) -> None:
 
     async def file_volumes(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.read")
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id = service.resolve_device(request.match_info["device_id"])
         return web.json_response(await service.hub.file_volumes(device_id))
 
     async def file_stat(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.read")
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id, volume, path = file_query(request)
         return web.json_response(await service.hub.file_stat(device_id, volume, path))
 
     async def file_list(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.read")
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id, volume, path = file_query(request)
         cursor = int(request.query.get("cursor", "0"))
@@ -116,10 +116,10 @@ def register_file_routes(app: web.Application, service: Any) -> None:
 
     async def file_download(request: web.Request) -> web.StreamResponse:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.read")
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id, volume, path = file_query(request)
         metadata = await service.hub.file_stat(device_id, volume, path)
@@ -171,10 +171,10 @@ def register_file_routes(app: web.Application, service: Any) -> None:
 
     async def file_upload(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.write")
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id, volume, path = file_query(request)
         total_size = request.content_length
@@ -253,10 +253,10 @@ def register_file_routes(app: web.Application, service: Any) -> None:
 
     async def file_mkdir(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.write")
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await json_body(request)
         device_id = service.resolve_device(request.match_info["device_id"])
@@ -282,10 +282,10 @@ def register_file_routes(app: web.Application, service: Any) -> None:
 
     async def file_delete(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.delete")
-        if blocked:
+        if blocked is not None:
             return blocked
         device_id, volume, path = file_query(request)
         operation, result, created = await service.operations.execute(
@@ -307,10 +307,10 @@ def register_file_routes(app: web.Application, service: Any) -> None:
 
     async def file_rename(request: web.Request) -> web.Response:
         blocked = service.require_develop()
-        if blocked:
+        if blocked is not None:
             return blocked
         blocked = require_scope(request, "files.write")
-        if blocked:
+        if blocked is not None:
             return blocked
         body = await json_body(request)
         device_id = service.resolve_device(request.match_info["device_id"])

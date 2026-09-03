@@ -26,6 +26,7 @@ from aiohttp import (
     web,
 )
 
+from .compat import BooleanOptionalAction, remove_prefix
 from .demo import DemoHub
 from .discovery import discover_iris_usb_devices
 from .gateway import (
@@ -339,7 +340,7 @@ async def _upload_firmware_artifact(
     paths: tuple[pathlib.Path, pathlib.Path, pathlib.Path],
 ) -> dict[str, Any]:
     form = FormData()
-    for field, path in zip(("bin", "elf", "map"), paths, strict=True):
+    for field, path in zip(("bin", "elf", "map"), paths):
         form.add_field(
             field,
             path.read_bytes(),
@@ -464,7 +465,7 @@ async def _ctl(args: argparse.Namespace) -> int:
                 token = os.environ.get("ESP_IRIS_MAINTENANCE_TOKEN", "")
                 if not token:
                     raise RuntimeError("ESP_IRIS_MAINTENANCE_TOKEN is required")
-                action = command.removeprefix("maintenance-")
+                action = remove_prefix(command, "maintenance-")
                 url = base + f"/v1/maintenance-leases/{args.lease_id}/{action}"
                 body = (
                     {"ttl_seconds": args.ttl_seconds}
@@ -708,7 +709,7 @@ def _doctor(args: argparse.Namespace) -> int:
     report: dict[str, Any] = {
         "python": sys.version.split()[0],
         "platform": sys.platform,
-        "python_supported": sys.version_info >= (3, 11),
+        "python_supported": sys.version_info >= (3, 8),
         "devices": [],
     }
     try:
@@ -787,17 +788,17 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument(
         "--usb-serial-jtag", action="append", default=[], metavar="PORT"
     )
-    web_parser.add_argument("--discover-usb", action=argparse.BooleanOptionalAction, default=True)
+    web_parser.add_argument("--discover-usb", action=BooleanOptionalAction, default=True)
     web_parser.add_argument(
         "--discover-usb-serial-jtag",
-        action=argparse.BooleanOptionalAction,
+        action=BooleanOptionalAction,
         default=False,
         help="also probe Espressif USB Serial/JTAG ports; disabled by default",
     )
     web_parser.add_argument("--usb-discovery-interval", type=float, default=1.0)
     web_parser.add_argument(
         "--discover-mdns",
-        action=argparse.BooleanOptionalAction,
+        action=BooleanOptionalAction,
         default=True,
         help="automatically discover _esp-iris._tcp devices on the local network",
     )
@@ -968,8 +969,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    if sys.version_info < (3, 11):
-        print("ESP-Iris gateway requires Python 3.11 or newer", file=sys.stderr)
+    if sys.version_info < (3, 8):  # noqa: UP036 - retain an explicit startup guard
+        print("ESP-Iris gateway requires Python 3.8 or newer", file=sys.stderr)
         return 2
     parser = build_parser()
     args = parser.parse_args(argv)

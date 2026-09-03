@@ -9,12 +9,12 @@ details.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import AsyncIterator
+from typing import Any, Awaitable, Callable, Dict, Protocol, runtime_checkable
 
 from .system_update import SystemUpdateBundle
 
-ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 @runtime_checkable

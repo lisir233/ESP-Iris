@@ -1,11 +1,24 @@
+from __future__ import annotations
+
 import asyncio
+import contextvars
 import sys
 import termios
 import threading
 import time
 from types import SimpleNamespace
 
+from iris_gateway.compat import to_thread
 from iris_gateway.link import SerialLink
+
+
+def test_to_thread_preserves_context_variables() -> None:
+    async def scenario() -> None:
+        value = contextvars.ContextVar("value", default="missing")
+        value.set("caller-context")
+        assert await to_thread(value.get) == "caller-context"
+
+    asyncio.run(scenario())
 
 
 class FakeSerial:
@@ -76,7 +89,7 @@ def test_serial_write_is_not_blocked_by_an_in_flight_read() -> None:
         serial = DuplexSerial()
         link = SerialLink("/dev/fake-iris", serial)
         read_task = asyncio.create_task(link.read())
-        assert await asyncio.to_thread(serial.read_started.wait, 0.5)
+        assert await to_thread(serial.read_started.wait, 0.5)
         await asyncio.wait_for(link.write(b"request"), 0.1)
         assert serial.writes == [b"request"]
         serial.release_read.set()

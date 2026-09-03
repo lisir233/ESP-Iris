@@ -9,12 +9,22 @@ python:
   stage: verify
   image: python:3.12
   before_script:
-    - python -m pip install -r components/esp_iris/tools/requirements-dev.txt
+    - python -m pip install -r components/esp_iris/tools/requirements.lock -r components/esp_iris/tools/requirements-dev.txt
   script:
     - cd components/esp_iris/tools
-    - python -m ruff check iris_gateway tests
+    - python -m ruff check --target-version py38 iris_gateway tests
     - python -m mypy iris_gateway
     - python -m pytest -q
+
+python-3.8:
+  stage: verify
+  image: python:3.8
+  before_script:
+    - python -m pip install -r components/esp_iris/tools/requirements.lock -r components/esp_iris/tools/requirements-test.txt
+  script:
+    - cd components/esp_iris/tools
+    - python -m compileall -q iris_gateway
+    - python -m pytest -q --ignore=tests/e2e
 
 frontend:
   stage: verify
@@ -35,7 +45,7 @@ frontend-e2e:
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv
     - python3 -m venv /tmp/esp-iris-e2e-venv
-    - /tmp/esp-iris-e2e-venv/bin/python -m pip install -r components/esp_iris/tools/requirements.txt
+    - /tmp/esp-iris-e2e-venv/bin/python -m pip install -r components/esp_iris/tools/requirements.lock
   script:
     - cd components/esp_iris/tools/frontend
     - npm ci

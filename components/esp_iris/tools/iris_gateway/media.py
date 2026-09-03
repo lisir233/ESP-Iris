@@ -11,7 +11,7 @@ JPEG = 3
 PNG = 4
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class EncodedImage:
     description: dict[str, int]
     data: bytes

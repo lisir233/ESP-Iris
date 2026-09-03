@@ -27,7 +27,7 @@
 # Python caches and virtual environments
 **/__pycache__/
 *.py[cod]
-.venv/
+.venv*/
 venv/
 .pytest_cache/
 .mypy_cache/

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 
 from iris_gateway.protocol import Frame, FrameDecoder, encode_frame

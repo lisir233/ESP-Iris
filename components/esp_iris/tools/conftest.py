@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -44,7 +44,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers", "firmware_profile(name): firmware required by a HIL test"
     )
     if config.getoption("--iris-e2e"):
-        run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         configured = config.getoption("--iris-artifacts")
         repository = pathlib.Path(__file__).resolve().parents[3]
         artifacts = (

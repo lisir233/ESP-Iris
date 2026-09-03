@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import hashlib
@@ -6,6 +8,7 @@ import struct
 
 import pytest
 
+import iris_gateway.session as session_module
 from iris_gateway.protocol import (
     Channel,
     ControlType,
@@ -270,6 +273,42 @@ def test_ota_data_window_resumes_from_a_confirmed_batch_boundary() -> None:
         result = await session.ota_update(b"abcd", timeout=0.01)
         assert result["job_id"] == 79
         assert attempts == {0: 1, 1: 2, 2: 2, 3: 2}
+
+    asyncio.run(scenario())
+
+
+def test_ota_data_window_rejects_a_truncated_response_batch(monkeypatch) -> None:
+    async def scenario() -> None:
+        session = object.__new__(DeviceSession)
+        session._request_lock = asyncio.Lock()
+
+        async def request(channel, type_, payload=b"", timeout=10.0):
+            del payload, timeout
+            assert (channel, type_) == (Channel.OTA, OtaType.BEGIN)
+            return Frame(
+                channel=channel,
+                type=OtaType.BEGIN_RESPONSE,
+                payload=struct.pack("<IIHB", 80, 1, 1, 5) + b"ota_1",
+            )
+
+        async def request_unlocked(channel, type_, payload=b"", timeout=10.0):
+            del payload, timeout
+            return Frame(channel=channel, type=type_, payload=b"")
+
+        original_gather = asyncio.gather
+
+        async def truncated_gather(*tasks, **kwargs):
+            del kwargs
+            for task in tasks:
+                task.cancel()
+            await original_gather(*tasks, return_exceptions=True)
+            return []
+
+        session._request = request
+        session._request_unlocked = request_unlocked
+        monkeypatch.setattr(session_module.asyncio, "gather", truncated_gather)
+        with pytest.raises(ProtocolError, match="response count"):
+            await session.ota_update(b"x", timeout=0.01)
 
     asyncio.run(scenario())
 

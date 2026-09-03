@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import enum
+from .compat import StrEnum
 
 
 class StateTransitionError(ValueError):
     """Raised when persisted or runtime state attempts an illegal transition."""
 
 
-class OperationState(enum.StrEnum):
+class OperationState(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     PRESERVING_EVIDENCE = "preserving_evidence"
@@ -82,13 +82,13 @@ def operation_transition(current: str, requested: str) -> OperationState:
     return target
 
 
-class SessionState(enum.StrEnum):
+class SessionState(StrEnum):
     NEGOTIATING = "negotiating"
     READY = "ready"
     CLOSED = "closed"
 
 
-class SessionEvent(enum.StrEnum):
+class SessionEvent(StrEnum):
     AUTHENTICATED = "authenticated"
     CLOSE = "close"
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 
 from iris_gateway.tls import ensure_certificate, ssl_context

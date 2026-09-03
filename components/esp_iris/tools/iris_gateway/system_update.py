@@ -11,7 +11,6 @@ from __future__ import annotations
 import dataclasses
 import enum
 import hashlib
-import itertools
 import json
 import pathlib
 import tempfile
@@ -53,7 +52,7 @@ _KIND_NAMES = {
 }
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class SystemUpdateComponent:
     id: int
     kind: SystemUpdateComponentKind
@@ -76,7 +75,7 @@ class SystemUpdateComponent:
         }
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class SystemUpdateBundle:
     manifest: Mapping[str, Any]
     manifest_bytes: bytes
@@ -437,7 +436,7 @@ def load_system_update_bundle(
             (item.target_offset, item.target_offset + item.size, item.id)
             for item in components
         )
-        for previous, current in itertools.pairwise(ordered_regions):
+        for previous, current in zip(ordered_regions, ordered_regions[1:]):
             if current[0] < previous[1]:
                 raise ValueError(
                     f"components {previous[2]} and {current[2]} overlap in target Flash"

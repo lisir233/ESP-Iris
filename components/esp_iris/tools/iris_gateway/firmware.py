@@ -9,7 +9,7 @@ ESP_APP_DESC_MAGIC = 0xABCD5432
 ESP32S31_CHIP_ID = 0x0020
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class FirmwareImage:
     sha256: str
     size: int

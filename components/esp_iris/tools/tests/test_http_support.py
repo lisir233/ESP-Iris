@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from unittest.mock import Mock
 
 from aiohttp.test_utils import make_mocked_request

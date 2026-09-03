@@ -8,8 +8,7 @@ import hmac
 import secrets
 import struct
 import time
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Awaitable, Callable, Dict
 
 from . import system_update_transport
 from .files import DeviceFiles
@@ -38,9 +37,9 @@ from .protocol import (
 from .state_machine import SessionEvent, SessionState, session_transition
 from .system_update import SystemUpdateBundle
 
-EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
-ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
-MediaCallback = Callable[[dict[str, Any]], Awaitable[None]]
+EventCallback = Callable[[Dict[str, Any]], Awaitable[None]]
+ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
+MediaCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 ReadyCallback = Callable[["DeviceSession"], Awaitable[None]]
 
 
@@ -48,7 +47,7 @@ async def _discard_media(event: dict[str, Any]) -> None:
     del event
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass
 class DeviceInfo:
     device_id: str
     boot_id: int
@@ -818,7 +817,7 @@ class DeviceSession:
                                 task.cancel()
                             await asyncio.gather(*tasks, return_exceptions=True)
                             raise
-                except TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     status = await self.ota_status(timeout=timeout)
                     if not status["active"] or status["job_id"] != job_id:
                         raise TimeoutError(
@@ -837,9 +836,9 @@ class DeviceSession:
                     if progress_callback is not None:
                         await progress_callback(status)
                     continue
-                for (chunk_offset, chunk), data_response in zip(
-                    batch, data_responses, strict=True
-                ):
+                if len(batch) != len(data_responses):
+                    raise ProtocolError("OTA data response count does not match request batch")
+                for (chunk_offset, chunk), data_response in zip(batch, data_responses):
                     if (
                         data_response.type != OtaType.DATA_RESPONSE
                         or len(data_response.payload) != 8
@@ -875,7 +874,7 @@ class DeviceSession:
                 )
             try:
                 end = await self._request(Channel.OTA, OtaType.END, b"", timeout)
-            except TimeoutError:
+            except (asyncio.TimeoutError, TimeoutError):
                 job_status = await self.job(job_id)
                 if (
                     job_status.get("job_state") != "succeeded"
@@ -1012,7 +1011,13 @@ class DeviceSession:
         while not self._closed:
             try:
                 await self.sync_clock(self._clock_sync_timeout)
-            except (TimeoutError, ConnectionError, ProtocolError, RuntimeError):
+            except (
+                asyncio.TimeoutError,
+                TimeoutError,
+                ConnectionError,
+                ProtocolError,
+                RuntimeError,
+            ):
                 if (
                     self.info is not None
                     and self.info.transport == Transport.USB_SERIAL_JTAG

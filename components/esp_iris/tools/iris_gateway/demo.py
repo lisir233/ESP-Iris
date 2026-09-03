@@ -9,13 +9,14 @@ import random
 import struct
 import time
 import zlib
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from collections.abc import AsyncIterator
+from typing import Any, Awaitable, Callable, Dict
 
+from .compat import remove_prefix
 from .firmware import inspect_firmware_image
 from .system_update import SystemUpdateBundle, SystemUpdateComponentKind
 
-EventSink = Callable[[dict[str, Any]], Awaitable[None]]
+EventSink = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 def _png(width: int = 640, height: int = 360, phase: int = 0) -> bytes:
@@ -332,7 +333,7 @@ class DemoHub:
         if if_match is not None and (
             existing is None
             or hashlib.sha256(existing).hexdigest()[:16]
-            != if_match.removeprefix('W/').strip('"')
+            != remove_prefix(if_match, "W/").strip('"')
         ):
             raise ValueError("demo file etag conflict")
         data = bytearray()

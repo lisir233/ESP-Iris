@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 from typing import Any
 
 import pytest
+
 from iris_gateway.gateway import (
     DEFAULT_OTA_VALIDATION_MODE,
     GatewayService,

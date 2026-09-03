@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -8,6 +10,8 @@ from unittest.mock import Mock
 
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
+
+import iris_gateway.cli as cli_module
 from iris_gateway.cli import _client_ssl, _listen_is_loopback, build_parser
 from iris_gateway.demo import DemoHub
 from iris_gateway.gateway import GatewayService, create_app
@@ -727,6 +731,27 @@ def test_frontend_entry_revalidates_while_hashed_assets_are_immutable(tmp_path) 
     asyncio.run(scenario())
 
 
+def test_frontend_static_path_rejects_parent_traversal(tmp_path) -> None:
+    async def scenario() -> None:
+        store = GatewayStore(tmp_path / "state")
+        frontend = tmp_path / "frontend"
+        frontend.mkdir()
+        (frontend / "index.html").write_text("safe fallback")
+        (tmp_path / "secret.txt").write_text("must not be served")
+        service = GatewayService(store, instance_id="test", frontend_dist=frontend)
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            response = await client.get("/%2E%2E%2Fsecret.txt")
+            assert response.status == 200
+            assert await response.text() == "safe fallback"
+        finally:
+            await client.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
 def test_loopback_is_unauthenticated_by_default_and_forwarded_header_is_ignored(
     tmp_path,
 ) -> None:
@@ -776,6 +801,12 @@ def test_non_loopback_peer_requires_authentication_by_default(tmp_path) -> None:
     request = make_mocked_request("GET", "/v1/devices", transport=transport)
     assert service.authentication_required(request) is True
     store.close()
+
+
+def test_cli_rejects_python_below_38(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_module.sys, "version_info", (3, 7, 17))
+    assert cli_module.main(["doctor", "--json"]) == 2
+    assert "Python 3.8 or newer" in capsys.readouterr().err
 
 
 def test_local_auth_cli_is_opt_in() -> None:

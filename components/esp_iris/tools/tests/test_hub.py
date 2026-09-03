@@ -1,8 +1,15 @@
+from __future__ import annotations
+
 import asyncio
 import struct
 
 import pytest
-from iris_gateway.hub import IrisHub, _firmware_mode_from_identity
+
+from iris_gateway.hub import (
+    IrisHub,
+    _firmware_mode_from_identity,
+    _next_complete_screen_frame,
+)
 from iris_gateway.protocol import (
     Channel,
     ControlType,
@@ -63,6 +70,20 @@ def test_usb_firmware_mode_uses_hello_identity_instead_of_com_port_name() -> Non
         )
         == "normal"
     )
+
+
+def test_screen_frame_timeout_covers_the_whole_receive_operation() -> None:
+    async def scenario() -> None:
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        with pytest.raises(asyncio.TimeoutError):
+            await _next_complete_screen_frame(
+                queue,
+                {"format": 2, "width": 1, "height": 1, "stride": 3},
+                stream_id=None,
+                timeout=0.01,
+            )
+
+    asyncio.run(scenario())
 
 
 def test_supervisor_retries_and_classifies_same_boot_as_reconnect() -> None:

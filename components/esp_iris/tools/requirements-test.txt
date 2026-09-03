@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8,<8.4 ; python_version < "3.9"
+pytest>=8,<9 ; python_version >= "3.9"
+jsonschema>=4,<5

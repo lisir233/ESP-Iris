@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 
 import pytest
+
 from iris_gateway.observability import MetricsRegistry
 from iris_gateway.operations import DeviceMaintenance, OperationManager
 from iris_gateway.security import Actor

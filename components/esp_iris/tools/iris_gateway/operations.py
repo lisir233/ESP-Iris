@@ -27,7 +27,7 @@ class DeviceMaintenance(RuntimeError):
     """Raised when a device is reserved for host-side maintenance."""
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass
 class _Pending:
     operation_id: str
     device_id: str
@@ -350,7 +350,7 @@ class OperationManager:
             raise
         except OperationCancelled:
             raise
-        except (OperationOutcomeUnknown, TimeoutError) as exc:
+        except (OperationOutcomeUnknown, asyncio.TimeoutError, TimeoutError) as exc:
             operation = self._transition(
                 pending.operation_id,
                 "outcome_unknown",

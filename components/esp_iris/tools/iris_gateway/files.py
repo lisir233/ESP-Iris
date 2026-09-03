@@ -8,6 +8,7 @@ import struct
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from .compat import remove_prefix
 from .protocol import Channel, FileStatus, FileType, Frame, ProtocolError
 
 if TYPE_CHECKING:
@@ -270,7 +271,7 @@ class DeviceFiles:
     def _etag_value(value: str | None) -> int:
         if value is None:
             return 0
-        normalized = value.strip().removeprefix("W/").strip('"')
+        normalized = remove_prefix(value.strip(), "W/").strip('"')
         if not re.fullmatch(r"[0-9a-fA-F]{16}", normalized):
             raise ValueError("file etag must contain exactly 16 hexadecimal characters")
         return int(normalized, 16)
@@ -390,7 +391,7 @@ class DeviceFiles:
                                 raise ProtocolError("invalid file write acknowledgement")
                             acknowledged = True
                             break
-                        except TimeoutError:
+                        except (asyncio.TimeoutError, TimeoutError):
                             status = await self._reconcile_write_status(stream_id)
                             if status["committed"] == target:
                                 acknowledged = True
@@ -413,7 +414,7 @@ class DeviceFiles:
                     timeout=15.0,
                     stream_id=stream_id,
                 )
-            except TimeoutError:
+            except (asyncio.TimeoutError, TimeoutError):
                 status = await self._reconcile_write_status(stream_id)
                 if status["state"] == "committed" and status["result"] is FileStatus.OK:
                     complete = True

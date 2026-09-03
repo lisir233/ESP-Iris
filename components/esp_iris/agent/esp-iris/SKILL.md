@@ -15,12 +15,15 @@ and may use their normal repository workflows.
 
 ## Preconditions
 
-1. Require Python 3.11 or newer and run the source entrypoint from this
+1. Require Python 3.8 or newer and run the source entrypoint from this
    repository:
 
    ```bash
    python3 common_components/esp_iris/tools/esp_iris.py
    ```
+
+   Install `tools/requirements.lock` with the active interpreter; its Python
+   version markers select the compatible dependency set automatically.
 
 2. Local loopback access is authentication-free by default. For a remote
    gateway or one started with `--require-local-auth`, read the Agent token from

@@ -16,7 +16,7 @@ DEFAULT_DEVELOPER_PASSWORD = "espressif"
 AGENT_TOKEN_SCOPES = frozenset({"files.read", "files.write", "files.delete"})
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class Actor:
     kind: str
     name: str

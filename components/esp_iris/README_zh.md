@@ -51,7 +51,7 @@ Workbench、CLI 和 Agent 连接分别接收独立的事件流；修改设备的
 | Raw TCP | 可移植的默认传输；Wi-Fi/Ethernet 和地址配置由应用负责 |
 | Application USB CDC0 | ESP32-S31；ESP-Iris 独占 TinyUSB CDC0 |
 | USB Serial/JTAG | 具有 `SOC_USB_SERIAL_JTAG_SUPPORTED` 的 target；串口不能同时作为控制台 |
-| Gateway | Python 3.11 或更高版本；当前真实设备主要在 Linux 验证 |
+| Gateway | Python 3.8 或更高版本；当前真实设备主要在 Linux 验证 |
 | Workbench | 构建随组件发布的 React 源码需要当前 Node.js/npm 环境 |
 
 每个固件可以编译一种或多种设备传输。启用多种传输时，物理连接按有界窗口
@@ -122,7 +122,7 @@ idf.py build
 ESP_IRIS_COMPONENT_DIR=components/esp_iris
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.txt"
+python -m pip install -r "$ESP_IRIS_COMPONENT_DIR/tools/requirements.lock"
 
 cd "$ESP_IRIS_COMPONENT_DIR/tools/frontend"
 npm ci
@@ -131,6 +131,10 @@ cd -
 
 python "$ESP_IRIS_COMPONENT_DIR/tools/esp_iris.py" web
 ```
+
+单个锁文件使用 Python 版本条件，pip 会为当前激活解释器自动选择已验证的依赖组。
+解释器 major/minor 变化时应重新创建隔离环境。Gateway 运行时与所选 ESP-IDF
+版本要求的 Python 相互独立；ESP-IDF 工具环境仍须使用该版本所要求的解释器。
 
 如果组件由 Component Manager 下载，将 `ESP_IRIS_COMPONENT_DIR` 设置为
 `managed_components/lisir233__esp_iris`。Gateway 启动后打开
