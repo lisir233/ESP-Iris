@@ -23,6 +23,9 @@ from .protocol import (
 from .system_update import SystemUpdateBundle
 
 
+SYSTEM_UPDATE_REQUEST_TIMEOUT = 60.0
+
+
 class ReadyInfo(Protocol):
     capabilities: int
 
@@ -115,7 +118,7 @@ async def perform_system_update(
     bundle: SystemUpdateBundle,
     *,
     operation_id: bytes | None = None,
-    timeout: float = 15.0,
+    timeout: float = SYSTEM_UPDATE_REQUEST_TIMEOUT,
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Transfer and commit one authenticated multi-image update plan."""

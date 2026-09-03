@@ -959,7 +959,7 @@ class DeviceSession:
         bundle: SystemUpdateBundle,
         *,
         operation_id: bytes | None = None,
-        timeout: float = 15.0,
+        timeout: float = system_update_transport.SYSTEM_UPDATE_REQUEST_TIMEOUT,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         return await system_update_transport.perform_system_update(

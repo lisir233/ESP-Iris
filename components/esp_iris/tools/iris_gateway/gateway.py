@@ -59,6 +59,7 @@ CONSOLE_METHOD_NAME = "console.execute"
 CONSOLE_LINE_MAX_BYTES = 255
 OTA_VALIDATION_MODES = ("elf_sha256", "version")
 DEFAULT_OTA_VALIDATION_MODE = "elf_sha256"
+GATEWAY_CLIENT_MAX_SIZE = 1024 * 1024 * 1024
 GATEWAY_API = {"major": 1, "minor": 1}
 GATEWAY_CAPABILITIES = [
     "device-maintenance-lease/v1",
@@ -988,7 +989,7 @@ def create_app(service: GatewayService) -> web.Application:
             ACTOR_CONTEXT.reset(token)
 
     app = web.Application(
-        middlewares=[errors, authentication], client_max_size=32 * 1024 * 1024
+        middlewares=[errors, authentication], client_max_size=GATEWAY_CLIENT_MAX_SIZE
     )
     async def health(request: web.Request) -> web.Response:
         return web.json_response(

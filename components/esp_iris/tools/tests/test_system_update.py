@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import pathlib
 import struct
@@ -21,8 +22,19 @@ from iris_gateway.system_update import (
     build_system_update_bundle,
     load_system_update_bundle,
 )
+from iris_gateway.system_update_transport import SYSTEM_UPDATE_REQUEST_TIMEOUT
 
 PROTOCOL_DIR = pathlib.Path(__file__).resolve().parents[2] / "protocol"
+
+
+def test_system_update_timeout_covers_large_partition_erase() -> None:
+    assert SYSTEM_UPDATE_REQUEST_TIMEOUT == 60.0
+    assert (
+        inspect.signature(DeviceSession.system_update)
+        .parameters["timeout"]
+        .default
+        == SYSTEM_UPDATE_REQUEST_TIMEOUT
+    )
 
 
 def _keys() -> tuple[bytes, bytes]:

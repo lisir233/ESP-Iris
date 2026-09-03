@@ -14,7 +14,7 @@ from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 import iris_gateway.cli as cli_module
 from iris_gateway.cli import _client_ssl, _listen_is_loopback, build_parser
 from iris_gateway.demo import DemoHub
-from iris_gateway.gateway import GatewayService, create_app
+from iris_gateway.gateway import GATEWAY_CLIENT_MAX_SIZE, GatewayService, create_app
 from iris_gateway.hub import IrisHub
 from iris_gateway.security import Actor
 from iris_gateway.store import GatewayStore
@@ -33,6 +33,14 @@ def _firmware_bundle() -> tuple[bytes, bytes, bytes]:
     image[descriptor + 48 : descriptor + 65] = b"esp-iris-template"
     image[descriptor + 144 : descriptor + 176] = hashlib.sha256(elf).digest()
     return bytes(image), elf, b"memory map"
+
+
+def test_gateway_client_max_size_is_one_gibibyte(tmp_path) -> None:
+    service = GatewayService(GatewayStore(tmp_path), instance_id="test", demo=True)
+    app = create_app(service)
+
+    assert GATEWAY_CLIENT_MAX_SIZE == 1024**3
+    assert app._client_max_size == GATEWAY_CLIENT_MAX_SIZE
 
 
 def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) -> None:
