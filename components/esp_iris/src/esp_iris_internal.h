@@ -114,8 +114,6 @@ typedef struct iris_runtime {
 
     portMUX_TYPE log_lock;
     portMUX_TYPE event_lock;
-    uint8_t log_ring[CONFIG_ESP_IRIS_LOG_RING_BYTES];
-    size_t log_head;
     size_t log_tail;
     size_t log_used;
     uint32_t log_dropped_bytes;

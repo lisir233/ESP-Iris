@@ -890,7 +890,6 @@ esp_err_t esp_iris_stop(void)
         g_iris.vfs_registered = false;
     }
     taskENTER_CRITICAL(&g_iris.log_lock);
-    g_iris.log_head = 0;
     g_iris.log_tail = 0;
     g_iris.log_used = 0;
     taskEXIT_CRITICAL(&g_iris.log_lock);

@@ -167,7 +167,7 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 | Capability | Default behavior | Device-side bound |
 | --- | --- | --- |
 | Link and status | Enabled | One worker and fixed protocol buffers |
-| stdout/stderr logs | Enabled | `CONFIG_ESP_IRIS_LOG_RING_BYTES` |
+| stdout/stderr logs | Enabled; 8 KiB ring in PSRAM when available | `CONFIG_ESP_IRIS_LOG_RING_BYTES` and `CONFIG_ESP_IRIS_LOG_RING_STORAGE_*` |
 | RPC handlers | Registered by the application | `CONFIG_ESP_IRIS_MAX_RPC_HANDLERS` and `CONFIG_ESP_IRIS_RPC_BODY_BYTES` |
 | Retained jobs | Created by the application | `CONFIG_ESP_IRIS_MAX_JOBS` |
 | Screen/image/audio | Idle until the host starts a stream | One `CONFIG_ESP_IRIS_MEDIA_LATEST_BYTES` buffer per active channel |
@@ -180,6 +180,14 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 
 The component uses credit-based channels and a latest-chunk policy for media.
 A slow host cannot create an unbounded device-side queue.
+
+The stdout/stderr ring is also mapped into a Core Dump memory section. Sending
+a record to the host does not remove its bytes from the retained crash history;
+complete records remain until newer records overwrite them. The default storage
+is PSRAM when external BSS placement is enabled, with internal DRAM available
+for products that prefer stronger crash-time reliability. The Core Dump symbol
+`g_iris_log_storage` contains a self-describing header followed by the retained
+record ring.
 
 ESP-Iris stores its stable Device ID and TCP pairing token in the NVS partition
 selected by `CONFIG_ESP_IRIS_NVS_PARTITION_NAME` (default: `nvs`). Products may
