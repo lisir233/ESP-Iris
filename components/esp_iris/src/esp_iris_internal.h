@@ -142,6 +142,7 @@ typedef struct iris_runtime {
 } iris_runtime_t;
 
 extern iris_runtime_t g_iris;
+void iris_notify_worker(iris_runtime_t *runtime);
 
 esp_err_t iris_identity_load_or_create(iris_runtime_t *runtime);
 
@@ -169,6 +170,10 @@ uint32_t iris_files_allocated_bytes(void);
 uint32_t iris_files_static_bytes(void);
 
 void iris_system_update_session_end(void);
+esp_err_t iris_system_update_request_cancel(const uint8_t *operation_id, size_t size);
+void iris_system_update_cancel_all(void);
+bool iris_system_update_cancel_pending(void);
+void iris_system_update_poll_cancel(void);
 bool iris_system_inventory_handle_frame(iris_runtime_t *runtime,
                                         const iris_decoded_frame_t *frame);
 uint64_t iris_system_inventory_capabilities(void);
@@ -195,6 +200,7 @@ bool iris_services_handle_frame(iris_runtime_t *runtime,
                                 const iris_decoded_frame_t *frame,
                                 uint64_t received_us);
 bool iris_services_queue_next(iris_runtime_t *runtime);
+bool iris_services_work_pending(void);
 void iris_services_poll(iris_runtime_t *runtime);
 uint64_t iris_services_capabilities(void);
 uint8_t iris_services_auth_mode(void);

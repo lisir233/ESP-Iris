@@ -29,7 +29,8 @@ esp_err_t esp_iris_system_inventory_register(
 
 esp_err_t esp_iris_system_inventory_unregister(void *user_ctx)
 {
-    if (esp_iris_is_started() || !s_system_inventory.registered ||
+    if (esp_iris_is_started() || iris_services_work_pending() ||
+        !s_system_inventory.registered ||
         s_system_inventory.provider.user_ctx != user_ctx ||
         iris_system_update_backend_registered()) {
         return ESP_ERR_INVALID_STATE;

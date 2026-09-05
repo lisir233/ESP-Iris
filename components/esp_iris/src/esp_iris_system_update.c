@@ -24,6 +24,7 @@ typedef struct {
     esp_iris_system_update_backend_t backend;
     esp_iris_system_update_status_t status;
     esp_iris_system_update_status_t published_status;
+    uint32_t published_job_id;
     esp_iris_system_update_component_t component;
     uint8_t manifest_sha256[ESP_IRIS_SYSTEM_SHA256_BYTES];
     uint8_t flags;
@@ -35,11 +36,15 @@ typedef struct {
 
 static iris_system_update_state_t s_system_update;
 static portMUX_TYPE s_system_update_lock = portMUX_INITIALIZER_UNLOCKED;
+static atomic_bool s_cancel_requested;
+static uint32_t job_id(void);
 
 static void publish_status(void)
 {
+    const uint32_t published_job_id = job_id();
     taskENTER_CRITICAL(&s_system_update_lock);
     s_system_update.published_status = s_system_update.status;
+    s_system_update.published_job_id = published_job_id;
     taskEXIT_CRITICAL(&s_system_update_lock);
 }
 
@@ -169,9 +174,10 @@ static void encode_status(uint8_t payload[36])
     esp_iris_system_update_status_t status;
     taskENTER_CRITICAL(&s_system_update_lock);
     status = s_system_update.published_status;
+    const uint32_t published_job_id = s_system_update.published_job_id;
     taskEXIT_CRITICAL(&s_system_update_lock);
     memcpy(payload, status.operation_id, 16);
-    iris_put_le32(payload + 16, job_id());
+    iris_put_le32(payload + 16, published_job_id);
     payload[20] = (uint8_t)status.phase;
     payload[21] = status.component_count;
     payload[22] = status.completed_components;
@@ -201,7 +207,7 @@ static bool handle_status(iris_runtime_t *runtime,
     (void)iris_queue_frame(runtime, frame->header.channel,
                            ESP_IRIS_SYSTEM_UPDATE_STATUS_RESPONSE,
                            ESP_IRIS_FLAG_RESPONSE, frame->header.request_id,
-                           job_id(), payload, sizeof(payload));
+                           iris_get_le32(payload + 16), payload, sizeof(payload));
     return true;
 }
 
@@ -327,6 +333,7 @@ static bool handle_begin(iris_runtime_t *runtime,
         return true;
     }
     (void)esp_iris_job_update(s_system_update.job, 50);
+    publish_status();
     queue_begin_response(runtime, frame);
     return true;
 }
@@ -550,9 +557,12 @@ static bool handle_commit(iris_runtime_t *runtime,
     s_system_update.status.phase = ESP_IRIS_SYSTEM_UPDATE_PHASE_COMMITTING;
     publish_status();
     (void)esp_iris_job_update(s_system_update.job, 950);
-    const esp_err_t err = s_system_update.backend.commit(
-        s_system_update.status.operation_id,
-        s_system_update.backend.user_ctx);
+    /* Final cooperative boundary: an entered backend commit cannot be undone. */
+    const esp_err_t err = atomic_load(&s_cancel_requested) ||
+        esp_iris_job_cancel_requested(s_system_update.job)
+        ? ESP_ERR_INVALID_STATE
+        : s_system_update.backend.commit(s_system_update.status.operation_id,
+                                          s_system_update.backend.user_ctx);
     s_system_update.status.result = err;
     s_system_update.status.phase = err == ESP_OK
         ? ESP_IRIS_SYSTEM_UPDATE_PHASE_COMMITTED
@@ -624,7 +634,8 @@ esp_err_t esp_iris_system_update_register(
 
 esp_err_t esp_iris_system_update_unregister(void *user_ctx)
 {
-    if (esp_iris_is_started() || !s_system_update.backend_registered ||
+    if (esp_iris_is_started() || iris_services_work_pending() ||
+        !s_system_update.backend_registered ||
         s_system_update.backend.user_ctx != user_ctx || update_in_progress()) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -643,6 +654,38 @@ esp_err_t esp_iris_system_update_get_status(
     taskEXIT_CRITICAL(&s_system_update_lock);
     return s_system_update.backend_registered ? ESP_OK
                                                : ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t iris_system_update_request_cancel(const uint8_t *operation_id, size_t size)
+{
+    if (operation_id == NULL || size != ESP_IRIS_SYSTEM_OPERATION_ID_BYTES) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    taskENTER_CRITICAL(&s_system_update_lock);
+    const esp_iris_system_update_status_t status = s_system_update.published_status;
+    taskEXIT_CRITICAL(&s_system_update_lock);
+    if (!bytes_equal(operation_id, status.operation_id, size) ||
+        status.phase < ESP_IRIS_SYSTEM_UPDATE_PHASE_PREPARED ||
+        status.phase > ESP_IRIS_SYSTEM_UPDATE_PHASE_COMMITTING) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    atomic_store(&s_cancel_requested, true);
+    return ESP_OK;
+}
+
+void iris_system_update_cancel_all(void)
+{
+    atomic_store(&s_cancel_requested, true);
+}
+
+bool iris_system_update_cancel_pending(void)
+{
+    return atomic_load(&s_cancel_requested);
+}
+
+void iris_system_update_poll_cancel(void)
+{
+    if (atomic_exchange(&s_cancel_requested, false)) job_cancel(NULL);
 }
 
 void iris_system_update_session_end(void)
@@ -717,6 +760,15 @@ esp_err_t esp_iris_system_update_get_status(
     (void)out_status;
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+esp_err_t iris_system_update_request_cancel(const uint8_t *operation_id, size_t size)
+{
+    (void)operation_id; (void)size;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+void iris_system_update_cancel_all(void) { }
+bool iris_system_update_cancel_pending(void) { return false; }
+void iris_system_update_poll_cancel(void) { }
 
 void iris_system_update_session_end(void)
 {

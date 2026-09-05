@@ -84,6 +84,14 @@ negotiation rather than silently reinterpreting an existing type.
 
 ## Control session
 
+The Gateway allows CONTROL `STATUS_REQUEST`, `PING`, and `TIME_SYNC_REQUEST` to
+wait concurrently with an in-flight RPC. Each has a distinct request ID and all
+frames still share serialized per-link writes and sequence allocation. Other
+requests retain the mutation lock; this does not bypass operation/device locks.
+Closing a session fails every pending request and prevents queued mutations from
+being sent. Thus live status remains observable while the device RPC executor is
+busy, without treating another queued RPC as a liveness probe (IRIS-A02).
+
 The device chooses a nonzero random session ID for every physical connection
 and repeats HELLO once a second until HELLO_ACK. The PC echoes that session ID
 in every frame. Old-session frames are discarded.
@@ -680,3 +688,50 @@ releases unhandshaken clients; an authenticated/acknowledged owner is exempt
 from this provisional deadline. For USB Serial/JTAG, a rejected candidate keeps
 the existing claim cooldown before it may compete again. This is a bounded
 handshake lease, not a new application idle timeout.
+
+## Slow-service execution and cancellation (IRIS-A02)
+
+RPC callbacks, CONTROL job-cancel callbacks, and OTA BEGIN/DATA/END/CANCEL run
+on one lazy `iris-service` worker. A single owned request slot bounds RAM and
+queue latency; saturation returns INVALID_STATE before executing another
+request. The protocol worker continues PING, TIME_SYNC, STATUS and job queries.
+Responses return through a separate owned buffer and are encoded by the
+protocol task with its current channel sequence. Session changes discard old
+completions and defer cleanup until the active callback/flash call returns.
+
+`CONFIG_ESP_IRIS_SERVICE_STACK_SIZE` defaults to 6144 bytes. The executor retains
+one private runtime buffer and one task across component stop/start; this is a
+bounded allocation rather than one task per request. Registration contexts must
+remain valid until unregister succeeds. Unregister rejects while work is active.
+A subsequent start rejects until deferred cleanup completes.
+
+A deadline already expired before callback dispatch prevents invocation. A
+callback that exceeds its deadline returns TIMEOUT with no response body, but
+its side effects are not rolled back. Arbitrary application C callbacks cannot
+be forcibly cancelled safely. A non-returning callback occupies the sole service
+slot; CONTROL stays available and additional service work is rejected. Long
+product work should expose a job and poll `esp_iris_job_cancel_requested()`.
+
+Cancellation is cooperative: CONTROL CANCEL marks the job immediately; its
+callback runs on the service worker after the current step. OTA CANCEL while a
+flash step is running acknowledges cancellation intent without STREAM_END.
+The current flash API call may finish before abort. OTA STATUS and the public
+OTA status API expose the last completed snapshot during work. END checks
+cancellation before boot selection; once boot selection starts, a late cancel
+cannot promise rollback. Bytes already written, completed callbacks, and
+platform preparation metadata may remain. No timeout or disconnect retries a
+mutating step automatically. Full device restart is still needed for a hung
+callback to release its occupied slot; forcibly deleting its task would risk
+corrupting locks and flash ownership.
+
+SYSTEM_UPDATE backend prepare/write/end/commit/cancel steps use the same
+bounded executor. SYSTEM_UPDATE STATUS reads a published status and Job ID
+snapshot on the protocol worker. A concurrent SYSTEM_UPDATE CANCEL validates
+its Operation ID against that snapshot and acknowledges intent using STATUS;
+it does not claim STREAM_END. Commit checks cancellation immediately before
+entering the backend; an already-entered product commit cannot be rolled back.
+Successful `esp_iris_stop()` waits for deferred service cleanup. If a callback
+still owns work after the bounded stop deadline, stop returns TIMEOUT and
+contexts must remain valid; unregister/start reject until work is released.
+Completion draining retains unsent responses under TX backpressure and claims
+the slot exclusively against concurrent deferred cleanup.

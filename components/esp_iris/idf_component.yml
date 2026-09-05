@@ -39,10 +39,10 @@ dependencies:
 
   espressif/esp_tinyusb:
     version: ">=2.2.1,<3.0.0"
-    require: private
+    require: "no"
     rules:
       - if: target == esp32s31
 
   espressif/mdns:
     version: "^1.11.3"
-    require: private
+    require: "no"

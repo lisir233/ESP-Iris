@@ -42,6 +42,7 @@ struct esp_iris_job {
     esp_iris_job_cancel_fn cancel;
     void *user_ctx;
     bool event_pending;
+    bool cancel_pending;
 };
 
 typedef struct {
@@ -116,6 +117,18 @@ typedef struct {
 static iris_service_state_t *s_services;
 static portMUX_TYPE s_services_lock = portMUX_INITIALIZER_UNLOCKED;
 
+static bool executor_busy(void);
+static bool executor_abandon(iris_runtime_t *runtime, bool deinit);
+static bool executor_queue_next(iris_runtime_t *runtime);
+static bool executor_dispatch(iris_runtime_t *runtime,
+                              const iris_decoded_frame_t *frame,
+                              uint64_t received_us);
+static void executor_request_ota_cancel(void);
+static bool executor_cancelled(void);
+static uint32_t executor_allocated_bytes(void);
+static bool executor_ota_status(esp_iris_ota_status_t *out);
+
+
 static iris_service_state_t *service_state(bool create)
 {
     taskENTER_CRITICAL(&s_services_lock);
@@ -152,6 +165,9 @@ esp_err_t esp_iris_ota_get_status(esp_iris_ota_status_t *out_status)
         return ESP_ERR_INVALID_ARG;
     }
     memset(out_status, 0, sizeof(*out_status));
+    if (executor_ota_status(out_status)) {
+        return ESP_OK;
+    }
 #if CONFIG_ESP_IRIS_OTA
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
@@ -188,7 +204,7 @@ static void maybe_release_state(iris_service_state_t *state)
     bool release = false;
     taskENTER_CRITICAL(&s_services_lock);
     if (s_services != state || !valid_state(state) ||
-        state->auth_token_ready || state->screen.begin != NULL ||
+        executor_busy() || state->auth_token_ready || state->screen.begin != NULL ||
         state->capture.active || state->restart_pending ||
         state->media_users != 0) {
         taskEXIT_CRITICAL(&s_services_lock);
@@ -380,11 +396,18 @@ esp_err_t esp_iris_rpc_register(uint16_t service_id, uint16_t method_id,
 
 esp_err_t esp_iris_rpc_unregister(uint16_t service_id, uint16_t method_id)
 {
+    if (executor_busy()) {
+        return ESP_ERR_INVALID_STATE;
+    }
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
         return ESP_ERR_NOT_FOUND;
     }
     taskENTER_CRITICAL(&s_services_lock);
+    if (executor_busy()) {
+        taskEXIT_CRITICAL(&s_services_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     for (size_t i = 0; i < CONFIG_ESP_IRIS_MAX_RPC_HANDLERS; ++i) {
         iris_rpc_entry_t *entry = &state->rpc[i];
         if (entry->used && entry->service_id == service_id &&
@@ -433,9 +456,7 @@ esp_err_t esp_iris_job_create(uint16_t kind, esp_iris_job_cancel_fn cancel,
         *out_job = slot;
     }
     taskEXIT_CRITICAL(&s_services_lock);
-    if (slot != NULL && g_iris.task != NULL) {
-        xTaskNotifyGive(g_iris.task);
-    }
+    if (slot != NULL) iris_notify_worker(&g_iris);
     return slot == NULL ? ESP_ERR_NO_MEM : ESP_OK;
 }
 
@@ -454,9 +475,7 @@ esp_err_t esp_iris_job_update(esp_iris_job_handle_t job,
     job->info.progress_permille = progress_permille;
     job->event_pending = true;
     taskEXIT_CRITICAL(&s_services_lock);
-    if (g_iris.task != NULL) {
-        xTaskNotifyGive(g_iris.task);
-    }
+    iris_notify_worker(&g_iris);
     return ESP_OK;
 }
 
@@ -478,9 +497,7 @@ esp_err_t esp_iris_job_finish(esp_iris_job_handle_t job, esp_err_t result)
         : (result == ESP_OK ? ESP_IRIS_JOB_SUCCEEDED : ESP_IRIS_JOB_FAILED);
     job->event_pending = true;
     taskEXIT_CRITICAL(&s_services_lock);
-    if (g_iris.task != NULL) {
-        xTaskNotifyGive(g_iris.task);
-    }
+    iris_notify_worker(&g_iris);
     return ESP_OK;
 }
 
@@ -580,9 +597,7 @@ esp_err_t esp_iris_media_submit(esp_iris_channel_t channel,
     slot->pending = true;
     taskEXIT_CRITICAL(&s_services_lock);
     media_state_release(state);
-    if (g_iris.task != NULL) {
-        xTaskNotifyGive(g_iris.task);
-    }
+    iris_notify_worker(&g_iris);
     return ESP_OK;
 }
 
@@ -748,6 +763,9 @@ esp_err_t esp_iris_pairing_token_set(const char token[65])
 
 esp_err_t iris_services_init(iris_runtime_t *runtime)
 {
+    if (executor_busy()) {
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t err = iris_files_init(runtime);
     if (err != ESP_OK) {
         return err;
@@ -780,7 +798,7 @@ static void ota_abort(iris_service_state_t *state, esp_err_t result)
 #endif
 }
 
-void iris_services_deinit(iris_runtime_t *runtime)
+static void services_deinit_now(iris_runtime_t *runtime)
 {
     (void)runtime;
     iris_files_deinit();
@@ -807,6 +825,9 @@ void iris_services_deinit(iris_runtime_t *runtime)
 void iris_services_session_begin(iris_runtime_t *runtime)
 {
     (void)runtime;
+    if (executor_busy()) {
+        return;
+    }
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {
         return;
@@ -818,7 +839,7 @@ void iris_services_session_begin(iris_runtime_t *runtime)
 #endif
 }
 
-void iris_services_session_end(iris_runtime_t *runtime)
+static void services_session_end_now(iris_runtime_t *runtime)
 {
     iris_files_session_end(runtime->session_id);
     iris_system_update_session_end();
@@ -1103,9 +1124,15 @@ static bool handle_rpc(iris_runtime_t *runtime,
         .payload_size = body_size,
     };
     size_t response_size = 0;
-    esp_err_t err = handler(&request, state->rpc_response,
-                            CONFIG_ESP_IRIS_RPC_BODY_BYTES,
-                            &response_size, user_ctx);
+    const uint64_t started_us = (uint64_t)esp_timer_get_time();
+    const bool expired = deadline_ms != 0 &&
+        started_us >= received_us &&
+        started_us - received_us > (uint64_t)deadline_ms * 1000U;
+    esp_err_t err = ESP_ERR_TIMEOUT;
+    if (!expired && !executor_cancelled()) {
+        err = handler(&request, state->rpc_response,
+                      CONFIG_ESP_IRIS_RPC_BODY_BYTES, &response_size, user_ctx);
+    }
     const uint64_t finished_us = (uint64_t)esp_timer_get_time();
     const uint64_t elapsed_us = finished_us >= received_us
         ? finished_us - received_us : UINT64_MAX;
@@ -1484,7 +1511,8 @@ static void ota_reset_without_finish(iris_ota_t *ota)
 
 static void ota_job_cancel(void *user_ctx)
 {
-    ota_abort(user_ctx, ESP_ERR_INVALID_STATE);
+    (void)user_ctx;
+    executor_request_ota_cancel();
 }
 
 static const esp_partition_t *ota_partition_at(uint32_t address)
@@ -1759,6 +1787,11 @@ static bool handle_ota(iris_runtime_t *runtime,
                 running != NULL ? running->address : 0,
                 ota->partition->address);
         }
+        /* This is the final cancellable boundary. Once selection begins,
+         * cancellation cannot promise to undo the committed boot target. */
+        if (err == ESP_OK && executor_cancelled()) {
+            err = ESP_ERR_INVALID_STATE;
+        }
         if (err == ESP_OK) {
             err = esp_ota_set_boot_partition(ota->partition);
         }
@@ -1802,10 +1835,15 @@ static bool handle_ota(iris_runtime_t *runtime,
 }
 #endif
 
+#include "esp_iris_executor.inc"
+
 bool iris_services_handle_frame(iris_runtime_t *runtime,
                                 const iris_decoded_frame_t *frame,
                                 uint64_t received_us)
 {
+    if (executor_dispatch(runtime, frame, received_us)) {
+        return true;
+    }
     if (frame->header.channel == ESP_IRIS_CHANNEL_CONTROL) {
         return handle_rpc(runtime, frame, received_us) ||
                handle_job(runtime, frame) ||
@@ -1918,6 +1956,12 @@ static bool queue_media(iris_runtime_t *runtime,
 
 bool iris_services_queue_next(iris_runtime_t *runtime)
 {
+    if (executor_queue_next(runtime)) {
+        return true;
+    }
+    if (executor_busy()) {
+        return false;
+    }
     if (iris_files_queue_next(runtime)) {
         return true;
     }
@@ -1930,6 +1974,9 @@ bool iris_services_queue_next(iris_runtime_t *runtime)
 
 void iris_services_poll(iris_runtime_t *runtime)
 {
+    if (executor_busy()) {
+        return;
+    }
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state) || !state->restart_pending ||
         runtime->tx_wire_length != 0 ||
@@ -1944,12 +1991,12 @@ uint32_t iris_services_allocated_bytes(void)
 {
     iris_service_state_t *state = service_state(false);
     return (valid_state(state) ? state->allocated_bytes : 0) +
-        iris_files_allocated_bytes();
+        iris_files_allocated_bytes() + executor_allocated_bytes();
 }
 
 uint32_t iris_services_static_bytes(void)
 {
-    return sizeof(s_services) + sizeof(s_services_lock) +
+    return sizeof(s_services) + sizeof(s_services_lock) + sizeof(s_executor) +
         iris_files_static_bytes() + iris_system_inventory_static_bytes() +
         iris_system_update_static_bytes();
 }

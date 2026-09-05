@@ -130,6 +130,14 @@ config ESP_IRIS_USB_SERIAL_JTAG_DISABLE_AUTO_RESET
         setting is restored by esp_iris_stop(). Use a separate UART or manual
         boot/reset sequence when flashing while ESP-Iris is running.
 
+config ESP_IRIS_SERVICE_STACK_SIZE
+    int "Slow service executor stack bytes"
+    range 4096 32768
+    default 6144
+    help
+        One lazy bounded worker owns RPC callbacks and OTA flash steps.
+        Its private buffers and stack remain allocated across stop/start.
+
 config ESP_IRIS_TASK_STACK_SIZE
     int "Worker task stack size (bytes)"
     range 3072 8192

@@ -30,6 +30,13 @@ iris_runtime_t g_iris = {
 
 static portMUX_TYPE s_start_lock = portMUX_INITIALIZER_UNLOCKED;
 
+void iris_notify_worker(iris_runtime_t *runtime)
+{
+    taskENTER_CRITICAL(&s_start_lock);
+    if (runtime->task != NULL) xTaskNotifyGive(runtime->task);
+    taskEXIT_CRITICAL(&s_start_lock);
+}
+
 static bool transition_lifecycle(iris_runtime_t *runtime,
                                  esp_iris_lifecycle_t requested)
 {
@@ -239,9 +246,7 @@ static void schedule_event(iris_runtime_t *runtime, uint8_t type)
     taskENTER_CRITICAL(&runtime->event_lock);
     runtime->pending_events |= IRIS_EVENT_BIT(type);
     taskEXIT_CRITICAL(&runtime->event_lock);
-    if (runtime->task != NULL) {
-        xTaskNotifyGive(runtime->task);
-    }
+    iris_notify_worker(runtime);
 }
 
 static void schedule_session_events(iris_runtime_t *runtime)
@@ -819,7 +824,9 @@ static void iris_worker(void *argument)
     }
     end_session(runtime);
     iris_transport_stop(runtime);
+    taskENTER_CRITICAL(&s_start_lock);
     runtime->task = NULL;
+    taskEXIT_CRITICAL(&s_start_lock);
     vTaskDelete(NULL);
 }
 
@@ -934,7 +941,7 @@ esp_err_t esp_iris_stop(void)
     taskEXIT_CRITICAL(&s_start_lock);
 
     if (worker != NULL) {
-        xTaskNotifyGive(worker);
+        iris_notify_worker(&g_iris);
         const TickType_t deadline = xTaskGetTickCount() +
             pdMS_TO_TICKS(IRIS_STOP_TIMEOUT_MS);
         while (g_iris.task != NULL &&
@@ -950,6 +957,16 @@ esp_err_t esp_iris_stop(void)
         iris_transport_stop(&g_iris);
     }
     iris_services_deinit(&g_iris);
+    const TickType_t service_deadline = xTaskGetTickCount() +
+        pdMS_TO_TICKS(IRIS_STOP_TIMEOUT_MS);
+    while (iris_services_work_pending() &&
+           (int32_t)(service_deadline - xTaskGetTickCount()) > 0) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (iris_services_work_pending()) {
+        (void)transition_lifecycle(&g_iris, ESP_IRIS_LIFECYCLE_FAILED);
+        return ESP_ERR_TIMEOUT;
+    }
 
     esp_err_t result = ESP_OK;
     if (g_iris.stdio_redirected) {

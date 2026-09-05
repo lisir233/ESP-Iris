@@ -10,3 +10,4 @@ typedef unsigned TickType_t;
 #define pdPASS 1
 #define taskYIELD() ((void)0)
 
+#define portMAX_DELAY UINT32_MAX

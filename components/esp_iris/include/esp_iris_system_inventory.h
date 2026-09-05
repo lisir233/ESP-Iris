@@ -38,7 +38,7 @@ typedef struct {
  * The product defines the protected ranges whose hashes are reported. The
  * same exact, erased-byte-padded ranges must be used by its bundle builder and
  * Flash backend so post-reboot comparisons are meaningful. get_inventory()
- * runs synchronously on the ESP-Iris worker and must be read-only. */
+ * runs on the bounded service executor and must be read-only. */
 typedef struct {
     esp_err_t (*get_inventory)(esp_iris_system_inventory_t *inventory,
                                void *user_ctx);

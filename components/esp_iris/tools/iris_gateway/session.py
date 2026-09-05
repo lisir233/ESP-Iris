@@ -172,10 +172,7 @@ class DeviceSession:
             self._closed = True
             if self.state is not SessionState.CLOSED:
                 self.state = session_transition(self.state, SessionEvent.CLOSE)
-            for future in self._pending.values():
-                if not future.done():
-                    future.set_exception(ConnectionError("ESP-Iris session closed"))
-            self._pending.clear()
+            self._fail_pending()
             try:
                 if self._clock_task is not None:
                     self._clock_task.cancel()
@@ -189,7 +186,14 @@ class DeviceSession:
         self._closed = True
         if self.state is not SessionState.CLOSED:
             self.state = session_transition(self.state, SessionEvent.CLOSE)
+        self._fail_pending()
         await self.link.close()
+
+    def _fail_pending(self) -> None:
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("ESP-Iris session closed"))
+        self._pending.clear()
 
     async def wait_ready(self, timeout: float = 5.0) -> DeviceInfo:
         await asyncio.wait_for(self._ready.wait(), timeout)
@@ -256,6 +260,10 @@ class DeviceSession:
             return await asyncio.wait_for(future, timeout)
         finally:
             self._pending.pop(request_id, None)
+            if future.done() and not future.cancelled():
+                # close() can fail a pending request while its write is still
+                # unwinding; consume that error even if write() also failed.
+                future.exception()
 
     async def _request(
         self,
@@ -266,6 +274,15 @@ class DeviceSession:
         *,
         stream_id: int = 0,
     ) -> Frame:
+        # These CONTROL probes cannot mutate firmware. They must remain
+        # observable while a slow RPC owns the mutation lock. Request IDs
+        # correlate concurrent replies and _send serializes sequence/wire order.
+        if channel == Channel.CONTROL and type_ in (
+            ControlType.STATUS_REQUEST, ControlType.PING, ControlType.TIME_SYNC_REQUEST
+        ):
+            return await self._request_unlocked(
+                channel, type_, payload, timeout, stream_id=stream_id
+            )
         async with self._request_lock:
             return await self._request_unlocked(
                 channel,
