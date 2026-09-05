@@ -235,11 +235,19 @@ def test_maintenance_completion_requires_recovery_identity_and_new_boot(tmp_path
     asyncio.run(scenario())
 
 
-def test_endpoint_maintenance_lease_registers_unmanaged_usb_endpoint(
+def test_endpoint_maintenance_lease_ignores_stale_identity_for_unmanaged_usb(
     tmp_path, monkeypatch
 ) -> None:
     async def scenario() -> None:
         store = GatewayStore(tmp_path)
+        store.remember_device(
+            {
+                "device_id": "stale-device",
+                "endpoint": "usb:location=test:1.0",
+                "firmware_mode": "normal",
+                "boot_id": "old-boot",
+            }
+        )
         service = GatewayService(store, instance_id="test")
         hub = IrisHub("test", reconnect_min_seconds=0.001)
         monkeypatch.setattr(

@@ -27,10 +27,16 @@ typedef struct {
     uint8_t data[CONFIG_ESP_IRIS_LOG_RING_BYTES];
 } iris_log_storage_t;
 
-#if CONFIG_ESP_IRIS_LOG_RING_STORAGE_PSRAM
+/* ESP-IDF only installs the Core Dump linker fragment when Core Dump is
+ * enabled. Use ordinary BSS sections in builds that only need live logs. */
+#if CONFIG_ESP_COREDUMP_ENABLE && CONFIG_ESP_IRIS_LOG_RING_STORAGE_PSRAM
 #define IRIS_LOG_STORAGE_ATTR COREDUMP_EXTRAM_ATTR
-#else
+#elif CONFIG_ESP_COREDUMP_ENABLE
 #define IRIS_LOG_STORAGE_ATTR COREDUMP_DRAM_ATTR
+#elif CONFIG_ESP_IRIS_LOG_RING_STORAGE_PSRAM
+#define IRIS_LOG_STORAGE_ATTR EXT_RAM_BSS_ATTR
+#else
+#define IRIS_LOG_STORAGE_ATTR
 #endif
 
 IRIS_LOG_STORAGE_ATTR __attribute__((used, aligned(4)))

@@ -452,19 +452,13 @@ class GatewayService:
         endpoint_name = str(endpoint_before.get("endpoint") or "")
         if not endpoint_name.startswith("usb:"):
             raise RuntimeError("host maintenance is supported only for local USB devices")
-        cached_for_endpoint = next(
-            (
-                item
-                for item in self.list_devices()
-                if str(item.get("endpoint") or "") == endpoint_name
-            ),
-            None,
-        )
-        expected_device_id = str(
-            endpoint_before.get("device_id")
-            or (cached_for_endpoint or {}).get("device_id")
-            or ""
-        ) or None
+        # An unmanaged ROM endpoint has no authenticated HELLO identity.  A
+        # historical device at the same physical USB location is evidence for
+        # discovery only: it must not constrain the identity that reconnects
+        # after flashing.  USB locations are routinely reused by another
+        # board, and a stale cache entry would otherwise make verification wait
+        # forever for the wrong Device ID.
+        expected_device_id = str(endpoint_before.get("device_id") or "") or None
         gate_key = expected_device_id or f"endpoint::{endpoint_name}"
         await self.operations.acquire_maintenance(gate_key, wait_timeout)
         endpoint: dict[str, Any] | None = None
