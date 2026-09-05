@@ -103,6 +103,10 @@ typedef struct iris_runtime {
     TaskHandle_t task;
     iris_transport_manager_t transport;
 
+    uint8_t rx_pending[256];
+    size_t rx_pending_length;
+    size_t rx_pending_offset;
+
     uint8_t rx_wire[ESP_IRIS_MAX_WIRE_FRAME_SIZE];
     size_t rx_wire_length;
     bool rx_discarding;

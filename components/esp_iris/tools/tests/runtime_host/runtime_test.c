@@ -47,4 +47,51 @@ static void test_rpc_lengths(void) {
     }
     s_services = NULL;
 }
-int main(void) { test_rpc_lengths(); return 0; }
+static void append_control(uint8_t type, uint32_t request_id, const uint8_t *payload, size_t n) {
+    esp_iris_wire_header_t h = {.channel = ESP_IRIS_CHANNEL_CONTROL,
+        .type = type, .session_id = 123, .request_id = request_id,
+        .sequence = request_id, .payload_size = n};
+    size_t encoded;
+    assert(iris_frame_encode(incoming + incoming_size, sizeof(incoming) - incoming_size,
+        &h, payload, n, &encoded) == ESP_OK);
+    incoming_size += encoded;
+}
+static void test_coalesced_frames(void) {
+    incoming_size = 0;
+    append_control(ESP_IRIS_CONTROL_PING, 1, NULL, 0);
+    incoming[incoming_size++] = 0x99; incoming[incoming_size++] = 0;
+    uint8_t credit[8] = {ESP_IRIS_CHANNEL_LOG, 0, 0, 0, 5, 0, 0, 0};
+    append_control(ESP_IRIS_CONTROL_CREDIT, 2, credit, sizeof(credit));
+    append_control(ESP_IRIS_CONTROL_PING, 3, NULL, 0);
+    append_control(ESP_IRIS_CONTROL_PING, 4, NULL, 0);
+    for (size_t segment = 1; segment <= incoming_size; ++segment) {
+        for (size_t partial = 1; partial <= 40; partial += 13) {
+            iris_runtime_t rt = {.session_id = 123, .hello_acked = true,
+                .next_hello_us = INT64_MAX};
+            rt.transport.active_ops = &g_iris_tcp_transport_ops;
+            rt.transport.active_state = &rt.transport.tcp;
+            read_limit = segment; incoming_offset = 0; outgoing_size = 0;
+            write_limit = 0;
+            for (unsigned step = 0; step < 300 && !rt.tx_wire_length; ++step) pump_link(&rt);
+            assert(rt.tx_wire_length > 0);
+            size_t saved_offset = incoming_offset;
+            for (unsigned step = 0; step < 5; ++step) pump_link(&rt);
+            assert(incoming_offset == saved_offset && outgoing_size == 0);
+            write_limit = partial;
+            for (unsigned step = 0; step < 1000; ++step) pump_link(&rt);
+            assert(incoming_offset == incoming_size);
+            assert(rt.rx_pending_offset == rt.rx_pending_length);
+            assert(rt.tx_frames == 3 && rt.invalid_frames == 1);
+            size_t start = 0; unsigned replies = 0;
+            const uint32_t ids[] = {1,3,4};
+            for (size_t i = 0; i < outgoing_size; ++i) if (outgoing[i] == 0) {
+                iris_decoded_frame_t response;
+                assert(iris_frame_decode_in_place(outgoing + start, i-start, &response) == ESP_OK);
+                assert(response.header.type == ESP_IRIS_CONTROL_PONG);
+                assert(response.header.request_id == ids[replies++]); start = i + 1;
+            }
+            assert(replies == 3);
+        }
+    }
+}
+int main(void) { test_rpc_lengths(); test_coalesced_frames(); return 0; }

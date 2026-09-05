@@ -517,7 +517,7 @@ static void handle_frame(iris_runtime_t *runtime,
     }
 }
 
-static void feed_rx(iris_runtime_t *runtime, const uint8_t *data,
+static size_t feed_rx(iris_runtime_t *runtime, const uint8_t *data,
                     size_t length)
 {
     for (size_t i = 0; i < length; ++i) {
@@ -541,6 +541,9 @@ static void feed_rx(iris_runtime_t *runtime, const uint8_t *data,
                 ++runtime->invalid_frames;
             }
             runtime->rx_wire_length = 0;
+            if (runtime->tx_wire_length != 0) {
+                return i + 1U;
+            }
             continue;
         }
         if (runtime->rx_discarding) {
@@ -554,6 +557,7 @@ static void feed_rx(iris_runtime_t *runtime, const uint8_t *data,
         }
         runtime->rx_wire[runtime->rx_wire_length++] = value;
     }
+    return length;
 }
 
 static void begin_session(iris_runtime_t *runtime)
@@ -571,6 +575,8 @@ static void begin_session(iris_runtime_t *runtime)
     runtime->log_credit = 0;
     runtime->next_hello_us = 0;
     runtime->rx_wire_length = 0;
+    runtime->rx_pending_length = 0;
+    runtime->rx_pending_offset = 0;
     runtime->rx_discarding = false;
     runtime->disconnect_after_tx = false;
     runtime->tx_wire_length = 0;
@@ -594,6 +600,8 @@ static void end_session(iris_runtime_t *runtime)
     runtime->session_id = 0;
     runtime->log_credit = 0;
     runtime->rx_wire_length = 0;
+    runtime->rx_pending_length = 0;
+    runtime->rx_pending_offset = 0;
     runtime->rx_discarding = false;
     runtime->disconnect_after_tx = false;
     runtime->tx_wire_length = 0;
@@ -643,8 +651,7 @@ static void queue_next_log(iris_runtime_t *runtime)
     }
 }
 
-static bool pump_link(iris_runtime_t *runtime, uint8_t *input,
-                      size_t input_capacity)
+static bool pump_link(iris_runtime_t *runtime)
 {
     bool progressed = flush_tx(runtime);
     if (runtime->tx_wire_length == 0 && runtime->disconnect_after_tx) {
@@ -657,9 +664,20 @@ static bool pump_link(iris_runtime_t *runtime, uint8_t *input,
         return progressed;
     }
 
-    const int received = iris_transport_read(runtime, input, input_capacity);
-    if (received > 0) {
-        feed_rx(runtime, input, (size_t)received);
+    /* Preserve coalesced frame tails while the single TX slot drains. */
+    if (runtime->rx_pending_offset == runtime->rx_pending_length) {
+        runtime->rx_pending_offset = 0;
+        runtime->rx_pending_length = 0;
+        const int received = iris_transport_read(runtime, runtime->rx_pending,
+                                                 sizeof(runtime->rx_pending));
+        if (received > 0) {
+            runtime->rx_pending_length = (size_t)received;
+        }
+    }
+    if (runtime->rx_pending_offset < runtime->rx_pending_length) {
+        runtime->rx_pending_offset += feed_rx(
+            runtime, runtime->rx_pending + runtime->rx_pending_offset,
+            runtime->rx_pending_length - runtime->rx_pending_offset);
         progressed = true;
     }
 
@@ -700,7 +718,6 @@ static bool pump_link(iris_runtime_t *runtime, uint8_t *input,
 static void iris_worker(void *argument)
 {
     iris_runtime_t *runtime = argument;
-    uint8_t input[256];
     while (runtime->running) {
         const int64_t active_start_us = esp_timer_get_time();
         const iris_link_event_t event = iris_transport_poll(runtime);
@@ -715,7 +732,7 @@ static void iris_worker(void *argument)
              * preserves CONTROL/EVENT responsiveness and prevents a mirror
              * stream from monopolizing this task. */
             for (size_t burst = 0; burst < 8; ++burst) {
-                const bool step = pump_link(runtime, input, sizeof(input));
+                const bool step = pump_link(runtime);
                 progressed = progressed || step;
                 if (!step || runtime->tx_wire_length != 0) {
                     break;
