@@ -172,15 +172,18 @@ class DeviceSession:
             self._closed = True
             if self.state is not SessionState.CLOSED:
                 self.state = session_transition(self.state, SessionEvent.CLOSE)
-            if self._clock_task is not None:
-                self._clock_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._clock_task
             for future in self._pending.values():
                 if not future.done():
                     future.set_exception(ConnectionError("ESP-Iris session closed"))
             self._pending.clear()
-            await self.link.close()
+            try:
+                if self._clock_task is not None:
+                    self._clock_task.cancel()
+                    # Consume child cancellation, not run() cancellation during
+                    # EOF cleanup: otherwise the supervisor can retry forever.
+                    await asyncio.gather(self._clock_task, return_exceptions=True)
+            finally:
+                await self.link.close()
 
     async def close(self) -> None:
         self._closed = True
@@ -237,6 +240,8 @@ class DeviceSession:
         stream_id: int = 0,
     ) -> Frame:
         await self.wait_ready(timeout)
+        if self._closed:
+            raise ConnectionError("ESP-Iris session closed")
         request_id = self._next_request_id()
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future

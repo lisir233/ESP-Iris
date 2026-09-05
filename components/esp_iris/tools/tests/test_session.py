@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import hmac
 import struct
+import time
 
 import pytest
 
@@ -73,6 +74,56 @@ def test_send_sequence_wraps_uint32_in_wire_order_and_new_session_starts_fresh()
         replacement = DeviceSession(link, discard, discard)
         await replacement._send(Channel.CONTROL, ControlType.PING)
         assert decode_frame(link.writes[-1][:-1]).sequence == 1
+
+    asyncio.run(scenario())
+
+
+def test_request_cannot_start_after_readiness_wait_when_session_closed() -> None:
+    async def scenario() -> None:
+        async def discard(value: object) -> None:
+            pass
+
+        link = FakeLink()
+        session = DeviceSession(link, discard, discard)
+
+        async def close_during_ready(timeout: float = 5.0):
+            session._closed = True
+
+        session.wait_ready = close_during_ready
+        with pytest.raises(ConnectionError, match="session closed"):
+            await session._request_unlocked(Channel.CONTROL, ControlType.PING)
+        assert not session._pending
+        assert not link.writes
+
+    asyncio.run(scenario())
+
+
+def test_cancellation_during_eof_cleanup_propagates_and_closes_link() -> None:
+    async def scenario() -> None:
+        async def discard(value: object) -> None:
+            pass
+
+        link = FakeLink()
+        session = DeviceSession(link, discard, discard)
+        cleanup_started = asyncio.Event()
+
+        async def slow_clock() -> None:
+            try:
+                await asyncio.Future()
+            finally:
+                cleanup_started.set()
+                await asyncio.Future()
+
+        session._clock_task = asyncio.create_task(slow_clock())
+        await asyncio.sleep(0)
+        task = asyncio.create_task(session.run())
+        await link.incoming.put(b"")
+        await asyncio.wait_for(cleanup_started.wait(), 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 1)
+        assert link.closed
+        assert session._clock_task.done()
 
     asyncio.run(scenario())
 
@@ -624,7 +675,9 @@ def test_missing_pairing_token_has_the_same_minimum_failure_delay() -> None:
             pass
 
         session = DeviceSession(link, on_ready, on_event)
-        session.AUTH_MISSING_TOKEN_DELAY_SECONDS = 0.01
+        resolution = time.get_clock_info("monotonic").resolution
+        delay = max(0.01, 4 * resolution)
+        session.AUTH_MISSING_TOKEN_DELAY_SECONDS = delay
         task = asyncio.create_task(session.run())
         started = asyncio.get_running_loop().time()
         await link.incoming.put(
@@ -656,7 +709,8 @@ def test_missing_pairing_token_has_the_same_minimum_failure_delay() -> None:
         )
         with pytest.raises(ProtocolError, match="requires a pairing token"):
             await task
-        assert asyncio.get_running_loop().time() - started >= 0.008
+        # Windows Python 3.8's loop clock may tick only every 15.6 ms.
+        assert asyncio.get_running_loop().time() - started >= delay - resolution
 
     asyncio.run(scenario())
 

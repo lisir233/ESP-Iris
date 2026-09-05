@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import os
 import pathlib
+import sys
 import tempfile
 from typing import Protocol
 
@@ -104,7 +105,7 @@ class SerialLink(Link):
                 exclusive=True if os.name == "posix" else None,
             )
             try:
-                if hupcl is not None and os.name == "posix":
+                if hupcl is not None and sys.platform != "win32":
                     import termios
 
                     attributes = termios.tcgetattr(serial_port.fileno())
@@ -195,7 +196,7 @@ class EndpointLock:
             self._file.flush()
 
     def acquire(self) -> None:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import msvcrt
 
             self._file.seek(0)
@@ -224,7 +225,7 @@ class EndpointLock:
     def close(self) -> None:
         if self._file.closed:
             return
-        if os.name == "nt":
+        if sys.platform == "win32":
             import msvcrt
 
             self._file.seek(0)

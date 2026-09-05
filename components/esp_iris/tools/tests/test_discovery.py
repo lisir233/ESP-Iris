@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 
+import pytest
 from serial.tools import list_ports
 
 from iris_gateway import discovery
@@ -56,6 +58,7 @@ def test_usb_serial_jtag_discovery_requires_explicit_opt_in(monkeypatch) -> None
     ]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX serial symlink topology")
 def test_stable_linux_path_survives_usb_product_rename(
     monkeypatch, tmp_path
 ) -> None:

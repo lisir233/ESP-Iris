@@ -93,26 +93,28 @@ def test_supervisor_retries_and_classifies_same_boot_as_reconnect() -> None:
 
         hub._add_supervisor("fake:supervisor", opener)
         device_id = "00112233445566778899aabbccddeeff"
-        for _ in range(100):
-            if hub.list_devices():
-                break
-            await asyncio.sleep(0.002)
-        assert hub.list_devices()[0]["device_id"] == device_id
-        assert attempts >= 2
-
-        await links[0].incoming.put(b"")
-        for _ in range(100):
-            states = [
+        async def wait_for_connections(expected: list[str]) -> None:
+            while True:
+                states = [
                 event.get("connection_state")
                 for event in hub._history[device_id]
                 if event["kind"] == "connection"
-            ]
-            if "reconnected" in states:
-                break
-            await asyncio.sleep(0.002)
-        assert states[:3] == ["connected", "disconnected", "reconnected"]
-        assert hub.list_endpoints()[0]["state"] == "ready"
-        await hub.close()
+                ]
+                if states[:len(expected)] == expected:
+                    return
+                await asyncio.sleep(0.002)
+
+        try:
+            await asyncio.wait_for(wait_for_connections(["connected"]), 2)
+            assert hub.list_devices()[0]["device_id"] == device_id
+            assert attempts >= 2
+            await links[0].incoming.put(b"")
+            await asyncio.wait_for(wait_for_connections(
+                ["connected", "disconnected", "reconnected"]
+            ), 2)
+            assert hub.list_endpoints()[0]["state"] == "ready"
+        finally:
+            await asyncio.wait_for(hub.close(), 2)
         assert all(link.closed for link in links)
 
     asyncio.run(scenario())

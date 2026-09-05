@@ -22,7 +22,6 @@ from .protocol import (
 )
 from .system_update import SystemUpdateBundle
 
-
 SYSTEM_UPDATE_REQUEST_TIMEOUT = 60.0
 
 

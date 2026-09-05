@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 from datetime import datetime, timezone
 
 import pytest
@@ -44,6 +45,8 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers", "firmware_profile(name): firmware required by a HIL test"
     )
     if config.getoption("--iris-e2e"):
+        if sys.version_info < (3, 11):
+            raise pytest.UsageError("hardware E2E requires Python 3.11 or newer")
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         configured = config.getoption("--iris-artifacts")
         repository = pathlib.Path(__file__).resolve().parents[3]
@@ -57,6 +60,13 @@ def pytest_configure(config: pytest.Config) -> None:
         config._iris_e2e_artifacts = artifacts
         if not getattr(config.option, "xmlpath", None):
             config.option.xmlpath = str(artifacts / "junit.xml")
+
+
+def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) -> bool:
+    # Hardware helpers have a newer runtime and destructive fixtures. Do not
+    # import them during the portable host suite unless explicitly requested.
+    return (collection_path == pathlib.Path(__file__).parent / "tests" / "e2e"
+            and not config.getoption("--iris-e2e"))
 
 
 def pytest_collection_modifyitems(

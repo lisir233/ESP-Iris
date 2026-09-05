@@ -5,7 +5,14 @@ import struct
 
 import pytest
 
-from iris_gateway.protocol import Channel, ControlType, Frame, ProtocolError, TlvTag, encode_tlv
+from iris_gateway.protocol import (
+    Channel,
+    ControlType,
+    Frame,
+    ProtocolError,
+    TlvTag,
+    encode_tlv,
+)
 from iris_gateway.session import DeviceSession
 
 

@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import sys
-import termios
 import threading
 import time
 from types import SimpleNamespace
+
+import pytest
 
 from iris_gateway.compat import to_thread
 from iris_gateway.link import SerialLink
@@ -149,6 +150,7 @@ def test_serial_cancel_drains_in_flight_thread_before_close() -> None:
 
 
 def test_usb_serial_jtag_disables_hangup_on_close(monkeypatch) -> None:
+    termios = pytest.importorskip("termios", reason="POSIX terminal control only")
     changed: list[tuple[int, int, list[object]]] = []
 
     class DeferredSerial(FakeSerial):
