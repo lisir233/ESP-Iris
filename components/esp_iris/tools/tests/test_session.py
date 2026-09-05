@@ -56,6 +56,27 @@ async def wait_for_request(
     raise AssertionError(f"request {channel}/{type_} was not sent")
 
 
+def test_send_sequence_wraps_uint32_in_wire_order_and_new_session_starts_fresh() -> None:
+    async def scenario() -> None:
+        async def discard(value: object) -> None:
+            pass
+
+        link = FakeLink()
+        session = DeviceSession(link, discard, discard)
+        session._sequence[Channel.CONTROL] = 0xFFFFFFFD
+        await asyncio.gather(*(
+            session._send(Channel.CONTROL, ControlType.PING) for _ in range(4)
+        ))
+        assert [decode_frame(wire[:-1]).sequence for wire in link.writes] == [
+            0xFFFFFFFE, 0xFFFFFFFF, 0, 1
+        ]
+        replacement = DeviceSession(link, discard, discard)
+        await replacement._send(Channel.CONTROL, ControlType.PING)
+        assert decode_frame(link.writes[-1][:-1]).sequence == 1
+
+    asyncio.run(scenario())
+
+
 def test_session_hello_credit_and_log_event() -> None:
     async def scenario() -> None:
         link = FakeLink()

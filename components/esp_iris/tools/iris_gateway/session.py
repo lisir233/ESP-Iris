@@ -213,18 +213,18 @@ class DeviceSession:
             session_id = 0
         else:
             session_id = self.info.session_id
-        self._sequence[int(channel)] += 1
-        frame = Frame(
-            channel=channel,
-            type=type_,
-            flags=flags,
-            session_id=session_id,
-            request_id=request_id,
-            stream_id=stream_id,
-            sequence=self._sequence[int(channel)],
-            payload=payload,
-        )
         async with self._write_lock:
+            self._sequence[int(channel)] = (self._sequence[int(channel)] + 1) & 0xFFFFFFFF
+            frame = Frame(
+                channel=channel,
+                type=type_,
+                flags=flags,
+                session_id=session_id,
+                request_id=request_id,
+                stream_id=stream_id,
+                sequence=self._sequence[int(channel)],
+                payload=payload,
+            )
             await self.link.write(encode_frame(frame))
 
     async def _request_unlocked(
