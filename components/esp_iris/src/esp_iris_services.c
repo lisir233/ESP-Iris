@@ -1102,8 +1102,10 @@ static bool handle_rpc(iris_runtime_t *runtime,
     const uint64_t finished_us = (uint64_t)esp_timer_get_time();
     const uint64_t elapsed_us = finished_us >= received_us
         ? finished_us - received_us : UINT64_MAX;
-    if (response_size > CONFIG_ESP_IRIS_RPC_BODY_BYTES) {
+    if (response_size > CONFIG_ESP_IRIS_RPC_BODY_BYTES ||
+        response_size > sizeof(runtime->rx_wire) - IRIS_RPC_RESPONSE_HEADER_SIZE) {
         err = ESP_ERR_INVALID_SIZE;
+        response_size = 0;
     }
     if (deadline_ms != 0 && elapsed_us > (uint64_t)deadline_ms * 1000U) {
         err = ESP_ERR_TIMEOUT;
