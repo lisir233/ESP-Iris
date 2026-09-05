@@ -95,6 +95,7 @@ typedef struct {
     struct esp_iris_job jobs[CONFIG_ESP_IRIS_MAX_JOBS];
     uint32_t next_job_id;
     uint32_t last_rpc_request_id;
+    bool rpc_request_seen;
     esp_iris_screen_backend_t screen;
     iris_capture_t capture;
     iris_media_slot_t media[3];
@@ -811,6 +812,7 @@ void iris_services_session_begin(iris_runtime_t *runtime)
         return;
     }
     state->last_rpc_request_id = 0;
+    state->rpc_request_seen = false;
 #if CONFIG_ESP_IRIS_TCP_PAIRING
     esp_fill_random(state->auth_challenge, sizeof(state->auth_challenge));
 #endif
@@ -851,7 +853,7 @@ void iris_services_session_end(iris_runtime_t *runtime)
 
 uint64_t iris_services_capabilities(void)
 {
-    uint64_t result = ESP_IRIS_CAP_RPC | ESP_IRIS_CAP_JOBS |
+    uint64_t result = ESP_IRIS_CAP_SESSION_REOPEN | ESP_IRIS_CAP_RPC | ESP_IRIS_CAP_JOBS |
                       ESP_IRIS_CAP_SCREEN | ESP_IRIS_CAP_IMAGE |
                       ESP_IRIS_CAP_AUDIO | ESP_IRIS_CAP_MIRROR |
                       iris_files_capabilities() |
@@ -1062,13 +1064,18 @@ static bool handle_rpc(iris_runtime_t *runtime,
         return true;
     }
     iris_service_state_t *state = service_state(false);
-    if (!valid_state(state) || state->last_rpc_request_id == header->request_id) {
+    const uint32_t distance = valid_state(state)
+        ? header->request_id - state->last_rpc_request_id : 0;
+    if (!valid_state(state) || header->request_id == 0 ||
+        (state->rpc_request_seen &&
+         (distance == 0 || distance >= UINT32_C(0x80000000)))) {
         (void)iris_queue_error(runtime, header->request_id,
                                ESP_ERR_INVALID_STATE, header->channel,
                                header->type);
         return true;
     }
     state->last_rpc_request_id = header->request_id;
+    state->rpc_request_seen = true;
     esp_iris_rpc_handler_t handler = NULL;
     void *user_ctx = NULL;
     taskENTER_CRITICAL(&s_services_lock);

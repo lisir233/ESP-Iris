@@ -56,6 +56,7 @@ class Capability(enum.IntFlag):
     OTA_PROJECT_NAME_MATCH = 1 << 14
     SYSTEM_UPDATE = 1 << 15
     SYSTEM_INVENTORY = 1 << 16
+    SESSION_REOPEN = 1 << 17
 
 
 class ControlType(enum.IntEnum):

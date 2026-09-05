@@ -644,6 +644,36 @@ system inventory/layout hash before writes. Existing `AUTH_MODE` and capability
 bits continue to describe transport security and available services; this change
 does not add encryption, signing, or new target support.
 
+## Session replay and RPC retry boundary (IRIS-P04)
+
+`CAP_SESSION_REOPEN` (bit 17) negotiates `HELLO_ACK` flag `NEW_SESSION`
+(bit 5). A new host session sends this flag once it sees the capability, even
+on an initially provisional link. The device authenticates the ACK first,
+ends the previous logical session, generates a fresh nonzero Session ID,
+and sends HELLO. The host waits for this new HELLO before sending a normal
+ACK and advertising readiness. A duplicate NEW_SESSION for the old Session ID
+is discarded. A normal ACK for the current session is idempotent. Peers without
+the capability retain the original handshake. This explicit handshake lets a
+new USB Serial/JTAG host reopen a device whose physical USB connection stayed up.
+It is not an authenticated-channel substitute; TCP pairing remains a separate
+policy. Reopening ends session-owned jobs/streams just like disconnecting.
+
+Within a session, non-HELLO_ACK frames must advance their per-channel uint32
+sequence using serial arithmetic: distance must be in [1, 2^31). The first
+sequence may have any value; zero is valid after wrap. Duplicate/stale frames
+are discarded before services and counted as invalid. Transport ordering is
+required; reordered requests are not retried automatically.
+
+RPC request IDs must be nonzero and advance by the same serial arithmetic.
+The device retains one high-water mark for the whole session and rejects ALL
+reused or older IDs with INVALID_STATE, including A, B, A and changed payloads
+under the same ID. This is a bounded-memory rejection contract, not a response
+cache: after a lost ACK the caller must reconcile product state, never assign
+a new ID to automatically repeat a mutating RPC. IDs and frame sequences reset
+only at a new session. This provides no exactly-once guarantee across session
+reopen, power loss, or reboot. FILE/OTA have their own offset/receipt/status
+protocols; this change does not impose a new nonzero OTA stream ID on v1 peers.
+
 All transport configurations, including TCP-only firmware, keep a physical
 connection provisional until a valid HELLO_ACK. The configured claim deadline
 releases unhandshaken clients; an authenticated/acknowledged owner is exempt

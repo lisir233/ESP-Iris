@@ -96,6 +96,8 @@ typedef struct iris_runtime {
     uint64_t boot_id;
     uint32_t session_id;
     uint32_t sequence[ESP_IRIS_CHANNEL_COUNT];
+    uint32_t rx_sequence[ESP_IRIS_CHANNEL_COUNT];
+    bool rx_sequence_seen[ESP_IRIS_CHANNEL_COUNT];
     uint32_t log_credit;
     int64_t next_hello_us;
     uint32_t pending_events;
@@ -213,6 +215,7 @@ int iris_transport_write(iris_runtime_t *runtime, const uint8_t *buffer,
 esp_iris_transport_kind_t iris_transport_kind(void);
 const char *iris_transport_name(void);
 void iris_transport_commit(iris_runtime_t *runtime);
+void iris_transport_renew_claim(iris_runtime_t *runtime);
 void iris_transport_disconnect(iris_runtime_t *runtime);
 
 #if CONFIG_ESP_IRIS_TRANSPORT_USB

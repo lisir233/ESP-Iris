@@ -145,6 +145,8 @@ class DeviceSession:
         self._pending: dict[int, asyncio.Future[Frame]] = {}
         self._request_id = 0
         channel_count = max(int(channel) for channel in Channel) + 1
+        self._reopen_session_id: int | None = None
+        self._reopen_requested = False
         self._sequence = [0] * channel_count
         self._last_rx_sequence: list[int | None] = [None] * channel_count
         self._closed = False
@@ -321,15 +323,37 @@ class DeviceSession:
             required_features=required_features,
             health_timeout_ms=health_timeout_ms,
         )
-        if self.info is not None and (
+        reopening = (
+            self._reopen_session_id is not None
+            and info.session_id != self._reopen_session_id
+        )
+        if reopening:
+            if (
+                self.info is None
+                or self.info.device_id != info.device_id
+                or self.info.boot_id != info.boot_id
+            ):
+                raise ProtocolError("device identity changed during session reopen")
+            self._reopen_session_id = None
+            self._sequence = [0] * len(self._sequence)
+            self._last_rx_sequence = [None] * len(self._last_rx_sequence)
+        if self.info is not None and not reopening and (
             self.info.device_id != info.device_id
             or self.info.session_id != info.session_id
         ):
             raise ProtocolError("device identity/session changed on a live link")
         self.info = info
+        if (
+            info.capabilities & Capability.SESSION_REOPEN
+            and not self._reopen_requested
+        ):
+            self._reopen_requested = True
+            self._reopen_session_id = info.session_id
+        ack_flags = 1 << 5 if self._reopen_session_id is not None else 0
         if info.auth_mode == 0:
-            await self._send(Channel.CONTROL, ControlType.HELLO_ACK)
-            await self._complete_ready()
+            await self._send(Channel.CONTROL, ControlType.HELLO_ACK, flags=ack_flags)
+            if not ack_flags:
+                await self._complete_ready()
             return
         if info.auth_mode != 1:
             raise ProtocolError(f"unsupported ESP-Iris auth mode {info.auth_mode}")
@@ -349,7 +373,7 @@ class DeviceSession:
         )
         proof = hmac.new(self._pairing_token, message, hashlib.sha256).digest()
         await self._send(
-            Channel.CONTROL, ControlType.HELLO_ACK, nonce + proof
+            Channel.CONTROL, ControlType.HELLO_ACK, nonce + proof, flags=ack_flags
         )
 
     async def _complete_ready(self) -> None:
@@ -533,6 +557,8 @@ class DeviceSession:
     async def _handle_frame(self, frame: Frame, host_receive_ns: int) -> None:
         if frame.channel == Channel.CONTROL and frame.type == ControlType.HELLO:
             await self._handle_hello(frame)
+            return
+        if self._reopen_session_id is not None:
             return
         if self.info is None or frame.session_id != self.info.session_id:
             return

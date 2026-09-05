@@ -358,6 +358,9 @@ static esp_err_t queue_status(iris_runtime_t *runtime, uint32_t request_id)
                        payload, writer.length);
 }
 
+static void begin_session(iris_runtime_t *runtime);
+static void end_session(iris_runtime_t *runtime);
+
 static void handle_control(iris_runtime_t *runtime,
                            const iris_decoded_frame_t *frame,
                            uint64_t received_us)
@@ -365,6 +368,21 @@ static void handle_control(iris_runtime_t *runtime,
     const esp_iris_wire_header_t *header = &frame->header;
     switch (header->type) {
     case ESP_IRIS_CONTROL_HELLO_ACK:
+        if (header->flags & ESP_IRIS_FLAG_NEW_SESSION) {
+            if (iris_services_authenticate(runtime, frame->payload,
+                                           header->payload_size) != ESP_OK) {
+                (void)queue_error(runtime, header->request_id,
+                                  ESP_ERR_INVALID_STATE, header->channel,
+                                  header->type);
+                return;
+            }
+            end_session(runtime);
+            begin_session(runtime);
+            iris_transport_renew_claim(runtime);
+            (void)queue_hello(runtime);
+            runtime->next_hello_us = esp_timer_get_time() + IRIS_HELLO_INTERVAL_US;
+            return;
+        }
         if (runtime->hello_acked) {
             break;
         }
@@ -519,6 +537,20 @@ static void handle_frame(iris_runtime_t *runtime,
         ++runtime->invalid_frames;
         return;
     }
+    /* HELLO_ACK is idempotent; NEW_SESSION authenticates before resetting.
+     * All other frames use RFC 1982-style uint32 serial arithmetic. */
+    const uint8_t channel = frame->header.channel;
+    if (!(channel == ESP_IRIS_CHANNEL_CONTROL &&
+          frame->header.type == ESP_IRIS_CONTROL_HELLO_ACK)) {
+        const uint32_t distance = frame->header.sequence - runtime->rx_sequence[channel];
+        if (runtime->rx_sequence_seen[channel] &&
+                (distance == 0 || distance >= UINT32_C(0x80000000))) {
+            ++runtime->invalid_frames;
+            return;
+        }
+        runtime->rx_sequence[channel] = frame->header.sequence;
+        runtime->rx_sequence_seen[channel] = true;
+    }
     if (frame->header.channel == ESP_IRIS_CHANNEL_CONTROL &&
         (frame->header.type == ESP_IRIS_CONTROL_HELLO_ACK ||
          frame->header.type == ESP_IRIS_CONTROL_PING ||
@@ -589,6 +621,7 @@ static void begin_session(iris_runtime_t *runtime)
         runtime->session_id = esp_random();
     } while (runtime->session_id == 0);
     memset(runtime->sequence, 0, sizeof(runtime->sequence));
+    memset(runtime->rx_sequence_seen, 0, sizeof(runtime->rx_sequence_seen));
     taskENTER_CRITICAL(&runtime->event_lock);
     runtime->pending_events = 0;
     taskEXIT_CRITICAL(&runtime->event_lock);
@@ -695,9 +728,13 @@ static bool pump_link(iris_runtime_t *runtime)
         }
     }
     if (runtime->rx_pending_offset < runtime->rx_pending_length) {
-        runtime->rx_pending_offset += feed_rx(
+        const uint32_t input_session = runtime->session_id;
+        const size_t consumed = feed_rx(
             runtime, runtime->rx_pending + runtime->rx_pending_offset,
             runtime->rx_pending_length - runtime->rx_pending_offset);
+        if (runtime->session_id == input_session) {
+            runtime->rx_pending_offset += consumed;
+        }
         progressed = true;
     }
 

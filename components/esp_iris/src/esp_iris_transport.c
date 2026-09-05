@@ -212,6 +212,15 @@ const char *iris_transport_name(void)
     return IRIS_TRANSPORT_COUNT == 1U ? s_transports[0]->name : "waiting";
 }
 
+void iris_transport_renew_claim(iris_runtime_t *runtime)
+{
+    if (runtime == NULL || runtime->transport.active_ops == NULL) {
+        return;
+    }
+    runtime->transport.committed = false;
+    runtime->transport.claim_deadline_us = esp_timer_get_time() + IRIS_CLAIM_TIMEOUT_US;
+}
+
 void iris_transport_commit(iris_runtime_t *runtime)
 {
     if (runtime == NULL || runtime->transport.active_ops == NULL ||

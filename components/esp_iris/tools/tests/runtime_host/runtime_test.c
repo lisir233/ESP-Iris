@@ -94,6 +94,51 @@ static void test_coalesced_frames(void) {
         }
     }
 }
+static void test_replay_and_reopen(void) {
+    iris_runtime_t rt = { .session_id = 123, .hello_acked = true,
+        .session_state = IRIS_SESSION_READY, .link_connected = true };
+    iris_service_state_t state = {.magic = IRIS_SERVICE_STATE_MAGIC};
+    s_services = &state;
+    state.rpc[0] = (iris_rpc_entry_t){true, 1, 1, callback, NULL};
+    uint8_t payload[12] = {1,0,1,0};
+    iris_decoded_frame_t frame = {.header = {.channel = ESP_IRIS_CHANNEL_CONTROL,
+        .type = ESP_IRIS_CONTROL_REQUEST, .payload_size = 12, .session_id = 123},
+        .payload = payload};
+    callback_calls = 0; reported_size = 0; callback_result = ESP_OK;
+    const uint32_t requests[] = {10,11,10,11,0,9,12};
+    for (unsigned i = 0; i < sizeof(requests)/sizeof(requests[0]); ++i) {
+        frame.header.request_id = requests[i]; frame.header.sequence = i + 1;
+        rt.tx_wire_length = 0; handle_frame(&rt, &frame, 0);
+    }
+    assert(callback_calls == 3);
+    frame.header.request_id = 13; frame.header.sequence = 7;
+    rt.tx_wire_length = 0; handle_frame(&rt, &frame, 0);
+    assert(callback_calls == 3 && rt.invalid_frames == 1);
+    frame.header.sequence = 6; handle_frame(&rt, &frame, 0);
+    assert(callback_calls == 3 && rt.invalid_frames == 2);
+    /* Same ID with changed body/method cannot invoke a different handler. */
+    frame.header.sequence = 8; frame.header.request_id = 12; payload[2] = 2;
+    handle_frame(&rt, &frame, 0); assert(callback_calls == 3); payload[2] = 1;
+    /* Wrap acceptance and half-space rejection. */
+    state.last_rpc_request_id = UINT32_MAX; rt.rx_sequence[0] = UINT32_MAX;
+    frame.header.request_id = 1; frame.header.sequence = 0;
+    rt.tx_wire_length = 0; handle_frame(&rt, &frame, 0); assert(callback_calls == 4);
+    frame.header.request_id = UINT32_C(0x80000001); frame.header.sequence = 1;
+    rt.tx_wire_length = 0; handle_frame(&rt, &frame, 0); assert(callback_calls == 4);
+    /* A negotiated reopen produces a fresh session; delayed ACK of the old
+     * session cannot reset it again, and normal ACK replay remains harmless. */
+    frame.header.type = ESP_IRIS_CONTROL_HELLO_ACK;
+    frame.header.flags = ESP_IRIS_FLAG_NEW_SESSION; frame.header.payload_size = 0;
+    rt.tx_wire_length = 0; handle_frame(&rt, &frame, 0);
+    const uint32_t new_session = rt.session_id;
+    assert(new_session != 123 && new_session != 0 && !rt.hello_acked);
+    assert(!state.rpc_request_seen && !rt.rx_sequence_seen[0]);
+    rt.tx_wire_length = 0; handle_frame(&rt, &frame, 0); assert(rt.session_id == new_session);
+    frame.header.session_id = new_session; frame.header.flags = 0;
+    handle_frame(&rt, &frame, 0); assert(rt.hello_acked);
+    handle_frame(&rt, &frame, 0); assert(rt.session_id == new_session && rt.hello_acked);
+    s_services = NULL;
+}
 static void test_claim_timeout(void) {
     iris_runtime_t rt = {0};
     now_us = 0; starts = stops = 0; candidate = false;
@@ -114,6 +159,10 @@ static void test_claim_timeout(void) {
     now_us += 10 * IRIS_CLAIM_TIMEOUT_US;
     assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_NONE);
     assert(rt.transport.active_ops != NULL);
+    iris_transport_renew_claim(&rt);
+    assert(!rt.transport.committed);
+    now_us += IRIS_CLAIM_TIMEOUT_US;
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_DISCONNECTED);
     iris_transport_stop(&rt);
 }
-int main(void) { test_rpc_lengths(); test_coalesced_frames(); test_claim_timeout(); return 0; }
+int main(void) { test_rpc_lengths(); test_coalesced_frames(); test_replay_and_reopen(); test_claim_timeout(); return 0; }
