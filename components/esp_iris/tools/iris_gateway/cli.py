@@ -27,6 +27,7 @@ from aiohttp import (
 )
 
 from .compat import BooleanOptionalAction, remove_prefix
+from .compatibility import compatibility_expectation
 from .demo import DemoHub
 from .discovery import discover_iris_usb_devices
 from .gateway import (
@@ -593,6 +594,7 @@ async def _ctl(args: argparse.Namespace) -> int:
                             "artifact_id": artifact["artifact_id"],
                             "execution_mode": args.execution_mode,
                             "validation_mode": args.validation_mode,
+                            "compatibility": args.compatibility,
                         },
                         headers={"X-Operation-ID": operation_id},
                         ssl=ssl_value,
@@ -621,6 +623,7 @@ async def _ctl(args: argparse.Namespace) -> int:
                     data=bundle_path.read_bytes(),
                     headers={
                         "Content-Type": "application/vnd.esp-iris.system-update+zip",
+                        "X-Iris-Compatibility": json.dumps(args.compatibility),
                         "X-Operation-ID": operation_id,
                     },
                     ssl=ssl_value,
@@ -900,6 +903,12 @@ def build_parser() -> argparse.ArgumentParser:
     system_update.add_argument("bundle")
     system_update.add_argument("--wait", action="store_true")
     system_update.add_argument("--interval", type=float, default=0.5)
+    for update_parser in (ota, system_update):
+        update_parser.add_argument(
+            "--compatibility-json", dest="compatibility", default={},
+            type=lambda value: compatibility_expectation(json.loads(value)),
+            help="explicit expected chip_target/product_contract/board_id/layout_id/recovery_abi JSON object",
+        )
     firmware_add = commands.add_parser("firmware-add")
     firmware_add.add_argument("image")
     firmware_add.add_argument("--elf")

@@ -572,3 +572,74 @@ whose TXT identity and authenticated/session HELLO identity differ.
 
 mDNS is an unauthenticated local-link discovery hint. It never carries the
 pairing token and does not change the binary protocol or its golden vectors.
+# Additive firmware compatibility metadata (IRIS-P03)
+
+## Gateway write preflight
+
+OTA and System Update require a live explicit `normal` or `recovery` role and
+`chip_target` matching the artifact before an enter-Recovery RPC or a writer is
+called. Current artifact support is ESP32-S31 (`chip_id=0x20`); this does not
+expand target support. `execution_mode=application` means use the current writer
+without a Recovery transition; it still requires an explicit role and chip.
+
+Callers may supply a `compatibility` object with `chip_target`,
+`product_contract`, `board_id`, `layout_id`, and/or `recovery_abi`. Strings must
+contain 1..64 UTF-8 bytes; the ABI must be an integer 1..65535. Unknown keys,
+missing device declarations, and mismatches are rejected. An absent expectation
+does not invent product metadata: independent examples may omit product fields.
+All nonempty declarations observed in normal firmware are retained and checked
+again in Recovery before writing, even without a caller expectation. The actual
+System Update source-layout hash remains separately checked against its bundle.
+
+- `POST /v1/devices/{id}/ota`: JSON field `compatibility` alongside `artifact_id`.
+- `POST /v1/devices/{id}/system-update`: JSON-encoded header `X-Iris-Compatibility`
+  alongside the binary archive body.
+- Both CLI commands accept `--compatibility-json '{"chip_target":"esp32s31"}'`.
+
+The normalized expectation is persisted in operation parameters and included in
+the operation request fingerprint. Reusing an operation ID with different
+expectations returns conflict rather than reusing or running another write.
+These expectations select a compatible device; they do not authenticate the
+artifact or replace signed bundle policies.
+
+Legacy firmware without role/chip can still be observed but cannot be updated
+through these generic writers. Migrate it through the product's provisioning or
+recovery procedure (ESP-Mosaico: `mosaico.py recover`), install firmware declaring
+the contract, then resume the normal install workflow. There is no project-name
+fallback or implicit legacy write bypass. Rebuild the supplied examples/fixtures
+to obtain their explicit normal/Recovery role declarations.
+
+HELLO remains protocol v1. The following optional TLVs extend identity; existing
+v1 golden vectors remain unchanged. Integers are little endian. Unknown optional
+tags are ignored. Identity strings are UTF-8, at most 64 bytes, without a NUL.
+
+| Tag | Value | Meaning |
+| --- | --- | --- |
+| 0x0e | u8 | Firmware role: 0 unknown, 1 normal application, 2 recovery |
+| 0x0f | string | Product compatibility contract identifier |
+| 0x10 | string | ESP-IDF chip target, e.g. esp32s31 |
+| 0x11 | string | Board compatibility identifier |
+| 0x12 | u16 | Recovery ABI version; 0 unspecified |
+| 0x13 | u64 | Required host features; currently no bits defined |
+| 0x14 | u32 | Product health observation timeout, 1000..600000 ms |
+| 0x15 | string | Partition layout contract identifier |
+
+Firmware emits its explicit Kconfig declarations (`ESP_IRIS_FIRMWARE_ROLE`,
+`ESP_IRIS_PRODUCT_CONTRACT`, `ESP_IRIS_BOARD_ID`, `ESP_IRIS_RECOVERY_ABI`,
+`ESP_IRIS_HEALTH_TIMEOUT_MS`, `ESP_IRIS_LAYOUT_ID`) and `IDF_TARGET`. Invalid
+oversized identifiers fail the firmware build. The current firmware emits zero
+required-feature bits. A new host rejects any unknown required bits, invalid
+role, numeric lengths or health deadline before HELLO_ACK; it must not issue
+mutating requests to such a peer. Introducing a requirement old hosts cannot
+understand requires a protocol version bump, not merely this additive tag.
+
+An absent role is **unknown**, regardless of project/version/USB product names.
+Legacy peers can still connect for observation; product installers must require
+an explicit matching role/contract or use an explicit versioned legacy adapter.
+The role is authoritative only after HELLO; USB discovery hints are provisional.
+Missing string/ABI fields mean unspecified; the legacy health default is 45000 ms.
+These declarations do not authenticate a device or prove its flash layout. Match
+the selected product/chip/board/Recovery ABI contract and verify the actual
+system inventory/layout hash before writes. Existing `AUTH_MODE` and capability
+bits continue to describe transport security and available services; this change
+does not add encryption, signing, or new target support.

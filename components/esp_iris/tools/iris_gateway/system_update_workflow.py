@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from .compatibility import validate_update_compatibility
 from .contracts import GatewayHub
 from .firmware import inspect_firmware_image
 from .operations import OperationManager, OperationOutcomeUnknown
@@ -27,10 +28,14 @@ async def run_system_update(
     *,
     validation_mode: str,
     health_timeout_override: float | None = None,
+    compatibility: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a recovery-only update and prove the resulting system state."""
 
     before = await hub.status(device_id)
+    required_compatibility = validate_update_compatibility(
+        before, bundle.chip_id, compatibility
+    )
     timeout = health_timeout(before, health_timeout_override)
     previous_boot = before.get("boot_id")
     preserved_coredump = await preserve_coredump(device_id)
@@ -80,6 +85,9 @@ async def run_system_update(
         recovery_status = before
 
     writer_boot = recovery_status.get("boot_id")
+    validate_update_compatibility(
+        recovery_status, bundle.chip_id, required_compatibility, recovery=True
+    )
     inventory_before = await hub.system_update_inventory(device_id)
     await operations.progress(
         operation_id,

@@ -106,7 +106,7 @@ def test_missing_postwrite_health_is_unknown_and_never_replayed(tmp_path):
         writes = []
 
         async def status(device_id):
-            return {"device_id": "a", "boot_id": 1, "firmware_mode": "recovery"}
+            return {"device_id": "a", "boot_id": 1, "firmware_mode": "recovery", "chip_target": "esp32s31"}
 
         async def ota_update(*args, **kwargs):
             writes.append(1)
@@ -118,7 +118,7 @@ def test_missing_postwrite_health_is_unknown_and_never_replayed(tmp_path):
             await service.operations.execute(
                 "a", Actor("agent", "test"), "firmware.ota", {},
                 lambda: service.closed_loop_ota("a", b"image", {
-                    "sha256": "11" * 32, "project_name": "app", "version": "1"}, "op"),
+                    "sha256": "11" * 32, "project_name": "app", "version": "1", "chip_id": 0x20}, "op"),
                 operation_id="op")
         assert store.operation("op")["status"] == "outcome_unknown"
         assert store.operation("op")["progress"]["writer_boot_id"] == 1

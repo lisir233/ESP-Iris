@@ -37,7 +37,7 @@ class ReenumeratingHub:
         if self.status_calls == 1:
             return {
                 "boot_id": 10,
-                "firmware_mode": "normal",
+                "chip_target": "esp32s31", "firmware_mode": "normal",
                 "project_name": "iris_get_started",
             }
         if self.status_calls == 2:
@@ -45,12 +45,12 @@ class ReenumeratingHub:
         if self.status_calls == 3:
             return {
                 "boot_id": 20,
-                "firmware_mode": "recovery",
+                "chip_target": "esp32s31", "firmware_mode": "recovery",
                 "project_name": "iris_get_started",
             }
         return {
             "boot_id": 30,
-            "firmware_mode": "normal",
+            "chip_target": "esp32s31", "firmware_mode": "normal",
             "project_name": "iris_get_started",
             "app_version": "1.0.2",
             "firmware_sha256": ELF_SHA256,
@@ -125,14 +125,14 @@ class ProjectPolicyHub:
         if self.updated:
             return {
                 "boot_id": 20,
-                "firmware_mode": "normal",
+                "chip_target": "esp32s31", "firmware_mode": "normal",
                 "project_name": self.target_project,
                 "app_version": self.target_version,
                 "firmware_sha256": ELF_SHA256,
             }
         result: dict[str, Any] = {
             "boot_id": 10,
-            "firmware_mode": "normal",
+            "chip_target": "esp32s31", "firmware_mode": "normal",
             "project_name": "old-project",
         }
         if self.required is not None:
@@ -159,12 +159,12 @@ class RestartRaceHub(ProjectPolicyHub):
         if self.status_calls == 1:
             return {
                 "boot_id": 10,
-                "firmware_mode": "recovery",
+                "chip_target": "esp32s31", "firmware_mode": "recovery",
                 "project_name": "esp_iris_ota",
             }
         return {
             "boot_id": 20,
-            "firmware_mode": "normal",
+            "chip_target": "esp32s31", "firmware_mode": "normal",
             "project_name": "esp_iris_ota",
             "app_version": "1.0.2",
             "firmware_sha256": ELF_SHA256,
@@ -199,7 +199,7 @@ class RecoveryWriteRaceHub(ReenumeratingHub):
         if self.status_calls == 1:
             return {
                 "boot_id": 10,
-                "firmware_mode": "normal",
+                "chip_target": "esp32s31", "firmware_mode": "normal",
                 "project_name": "iris_get_started",
             }
         if self.status_calls == 2:
@@ -207,12 +207,12 @@ class RecoveryWriteRaceHub(ReenumeratingHub):
         if self.status_calls == 3:
             return {
                 "boot_id": 20,
-                "firmware_mode": "recovery",
+                "chip_target": "esp32s31", "firmware_mode": "recovery",
                 "project_name": "iris_get_started",
             }
         return {
             "boot_id": 30,
-            "firmware_mode": "normal",
+            "chip_target": "esp32s31", "firmware_mode": "normal",
             "project_name": "iris_get_started",
             "app_version": "1.0.2",
             "firmware_sha256": ELF_SHA256,
@@ -288,7 +288,7 @@ def test_closed_loop_ota_waits_through_recovery_session_close() -> None:
             "device-a",
             b"firmware",
             {
-                "sha256": "00" * 32,
+                "sha256": "00" * 32, "chip_id": 0x20,
                 "project_name": "iris_get_started",
                 "version": "1.0.2",
                 "elf_sha256": ELF_SHA256,
@@ -324,7 +324,7 @@ def test_closed_loop_ota_allows_project_change_by_default() -> None:
             "device-a",
             b"firmware",
             {
-                "sha256": "00" * 32,
+                "sha256": "00" * 32, "chip_id": 0x20,
                 "project_name": "new-project",
                 "version": "1.0.2",
                 "elf_sha256": ELF_SHA256,
@@ -350,7 +350,7 @@ def test_closed_loop_ota_reconciles_recovery_rpc_write_race() -> None:
             "device-a",
             b"firmware",
             {
-                "sha256": "00" * 32,
+                "sha256": "00" * 32, "chip_id": 0x20,
                 "project_name": "iris_get_started",
                 "version": "1.0.2",
                 "elf_sha256": ELF_SHA256,
@@ -377,7 +377,7 @@ def test_closed_loop_ota_reconciles_restart_race_after_end_response() -> None:
             "device-a",
             b"firmware",
             {
-                "sha256": "00" * 32,
+                "sha256": "00" * 32, "chip_id": 0x20,
                 "project_name": "esp_iris_ota",
                 "version": "1.0.2",
                 "elf_sha256": ELF_SHA256,
@@ -405,7 +405,7 @@ def test_closed_loop_ota_rejects_project_change_when_required() -> None:
                 "device-a",
                 b"firmware",
                 {
-                    "sha256": "00" * 32,
+                    "sha256": "00" * 32, "chip_id": 0x20,
                     "project_name": "new-project",
                     "version": "1.0.2",
                     "elf_sha256": ELF_SHA256,

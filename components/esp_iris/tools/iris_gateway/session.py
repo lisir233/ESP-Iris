@@ -62,6 +62,14 @@ class DeviceInfo:
     capabilities: int
     auth_mode: int
     max_payload: int
+    firmware_mode: str = "unknown"
+    product_contract: str = ""
+    chip_target: str = ""
+    board_id: str = ""
+    layout_id: str = ""
+    recovery_abi: int = 0
+    required_features: int = 0
+    health_timeout_ms: int = 45000
 
     def as_dict(self) -> dict[str, Any]:
         result = dataclasses.asdict(self)
@@ -272,6 +280,23 @@ class DeviceSession:
         protocol_version = tlv_u16(fields, TlvTag.PROTOCOL_VERSION)
         if protocol_version != 1:
             raise ProtocolError(f"unsupported ESP-Iris protocol {protocol_version}")
+        for tag, size in ((TlvTag.FIRMWARE_ROLE, 1), (TlvTag.RECOVERY_ABI, 2),
+                          (TlvTag.REQUIRED_FEATURES, 8), (TlvTag.HEALTH_TIMEOUT_MS, 4)):
+            if tag in fields and len(fields[tag]) != size:
+                raise ProtocolError(f"invalid {tag.name} length")
+        for tag in (TlvTag.PRODUCT_CONTRACT, TlvTag.CHIP_TARGET,
+                    TlvTag.BOARD_ID, TlvTag.LAYOUT_ID):
+            if len(fields.get(tag, b"")) > 64:
+                raise ProtocolError(f"{tag.name} exceeds 64 bytes")
+        required_features = tlv_u64(fields, TlvTag.REQUIRED_FEATURES)
+        if required_features:
+            raise ProtocolError(f"unsupported required features 0x{required_features:x}")
+        role = tlv_u8(fields, TlvTag.FIRMWARE_ROLE)
+        if role not in (0, 1, 2):
+            raise ProtocolError(f"unsupported firmware role {role}")
+        health_timeout_ms = tlv_u32(fields, TlvTag.HEALTH_TIMEOUT_MS, 45000)
+        if not 1000 <= health_timeout_ms <= 600000:
+            raise ProtocolError("health timeout must be between 1000 and 600000 ms")
 
         info = DeviceInfo(
             device_id=raw_device_id.hex(),
@@ -287,6 +312,14 @@ class DeviceSession:
             capabilities=tlv_u64(fields, TlvTag.CAPABILITIES),
             auth_mode=tlv_u8(fields, TlvTag.AUTH_MODE),
             max_payload=tlv_u32(fields, TlvTag.MAX_PAYLOAD, 4000),
+            firmware_mode={0: "unknown", 1: "normal", 2: "recovery"}[role],
+            product_contract=self._text(fields, TlvTag.PRODUCT_CONTRACT),
+            chip_target=self._text(fields, TlvTag.CHIP_TARGET),
+            board_id=self._text(fields, TlvTag.BOARD_ID),
+            layout_id=self._text(fields, TlvTag.LAYOUT_ID),
+            recovery_abi=tlv_u16(fields, TlvTag.RECOVERY_ABI),
+            required_features=required_features,
+            health_timeout_ms=health_timeout_ms,
         )
         if self.info is not None and (
             self.info.device_id != info.device_id

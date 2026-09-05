@@ -90,6 +90,15 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
     }
     for path, summary in control_paths.items():
         paths[path] = {"post": {"summary": summary}}
+    compatibility_schema = {
+        "type": "object", "additionalProperties": False,
+        "description": "Explicit device expectations, checked before writes and bound to the operation ID.",
+        "properties": {
+            **{field: {"type": "string", "minLength": 1, "maxLength": 64}
+               for field in ("chip_target", "product_contract", "board_id", "layout_id")},
+            "recovery_abi": {"type": "integer", "minimum": 1, "maximum": 65535},
+        },
+    }
     paths["/v1/devices/{device_id}/ota"]["post"]["requestBody"] = {
         "required": True,
         "content": {
@@ -99,6 +108,7 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
                     "required": ["artifact_id"],
                     "properties": {
                         "artifact_id": {"type": "string"},
+                        "compatibility": compatibility_schema,
                         "execution_mode": {
                             "type": "string",
                             "enum": ["recovery", "application"],
@@ -122,6 +132,10 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
             }
         },
     }
+    paths["/v1/devices/{device_id}/system-update"]["post"]["parameters"] = [{
+        "in": "header", "name": "X-Iris-Compatibility", "required": False,
+        "content": {"application/json": {"schema": compatibility_schema}},
+    }]
     paths["/v1/devices/{device_id}/jobs/{job_id}"] = {
         "get": {"summary": "Query job"},
         "delete": {"summary": "Cancel job"},

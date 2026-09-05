@@ -163,7 +163,11 @@ esp_err_t iris_queue_error(iris_runtime_t *runtime, uint32_t request_id,
 
 static esp_err_t queue_hello(iris_runtime_t *runtime)
 {
-    uint8_t payload[256];
+    _Static_assert(sizeof(CONFIG_ESP_IRIS_PRODUCT_CONTRACT) <= 65 &&
+                   sizeof(CONFIG_ESP_IRIS_BOARD_ID) <= 65 &&
+                   sizeof(CONFIG_ESP_IRIS_LAYOUT_ID) <= 65,
+                   "ESP-Iris compatibility identifiers must be at most 64 bytes");
+    uint8_t payload[512];
     tlv_writer_t writer = {.data = payload, .capacity = sizeof(payload)};
     const esp_app_desc_t *app = esp_app_get_description();
     const uint64_t capabilities = ESP_IRIS_CAP_LOG | ESP_IRIS_CAP_EVENT |
@@ -195,7 +199,23 @@ static esp_err_t queue_hello(iris_runtime_t *runtime)
             !tlv_put_string(&writer, ESP_IRIS_TLV_IDF_VERSION,
                             app->idf_ver, sizeof(app->idf_ver)) ||
             !tlv_put_u32(&writer, ESP_IRIS_TLV_MAX_PAYLOAD,
-                         ESP_IRIS_MAX_PAYLOAD_SIZE)) {
+                         ESP_IRIS_MAX_PAYLOAD_SIZE) ||
+            !tlv_put_u8(&writer, ESP_IRIS_TLV_FIRMWARE_ROLE,
+                        CONFIG_ESP_IRIS_FIRMWARE_ROLE) ||
+            !tlv_put_string(&writer, ESP_IRIS_TLV_PRODUCT_CONTRACT,
+                            CONFIG_ESP_IRIS_PRODUCT_CONTRACT,
+                            sizeof(CONFIG_ESP_IRIS_PRODUCT_CONTRACT)) ||
+            !tlv_put_string(&writer, ESP_IRIS_TLV_CHIP_TARGET,
+                            CONFIG_IDF_TARGET, sizeof(CONFIG_IDF_TARGET)) ||
+            !tlv_put_string(&writer, ESP_IRIS_TLV_BOARD_ID,
+                            CONFIG_ESP_IRIS_BOARD_ID, sizeof(CONFIG_ESP_IRIS_BOARD_ID)) ||
+            !tlv_put_u16(&writer, ESP_IRIS_TLV_RECOVERY_ABI,
+                         CONFIG_ESP_IRIS_RECOVERY_ABI) ||
+            !tlv_put_u64(&writer, ESP_IRIS_TLV_REQUIRED_FEATURES, 0) ||
+            !tlv_put_u32(&writer, ESP_IRIS_TLV_HEALTH_TIMEOUT_MS,
+                         CONFIG_ESP_IRIS_HEALTH_TIMEOUT_MS) ||
+            !tlv_put_string(&writer, ESP_IRIS_TLV_LAYOUT_ID,
+                            CONFIG_ESP_IRIS_LAYOUT_ID, sizeof(CONFIG_ESP_IRIS_LAYOUT_ID))) {
         return ESP_ERR_INVALID_SIZE;
     }
     size_t challenge_size = 0;

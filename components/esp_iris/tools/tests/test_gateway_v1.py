@@ -107,6 +107,7 @@ def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) 
                 json={
                     "artifact_id": artifact["artifact_id"],
                     "execution_mode": "recovery",
+                    "compatibility": {"chip_target": "esp32s31"},
                 },
                 headers={"X-Operation-ID": "ota-background"},
             )
@@ -121,6 +122,14 @@ def test_ota_archives_complete_bundle_and_returns_queryable_operation(tmp_path) 
                 await asyncio.sleep(0.01)
             assert operation is not None
             assert operation["status"] == "succeeded"
+            assert operation["params"]["compatibility"] == {"chip_target": "esp32s31"}
+            conflict = await client.post(
+                "/v1/devices/demo-a1b2c3d4/ota",
+                json={"artifact_id": artifact["artifact_id"], "execution_mode": "recovery",
+                      "compatibility": {"chip_target": "esp32s31", "board_id": "another"}},
+                headers={"X-Operation-ID": "ota-background"},
+            )
+            assert conflict.status == 409
             assert operation["result"]["execution_mode"] == "recovery"
             assert operation["result"]["validation"]["mode"] == "elf_sha256"
             assert "preserved_coredump" not in operation["result"]
@@ -339,6 +348,7 @@ def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
                 headers={
                     "Content-Type": "application/vnd.esp-iris.system-update+zip",
                     "X-Operation-ID": operation_id,
+                    "X-Iris-Compatibility": json.dumps({"chip_target": "esp32s31"}),
                 },
             )
             assert accepted.status == 202
@@ -352,6 +362,7 @@ def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
                 await asyncio.sleep(0.01)
             assert operation is not None
             assert operation["status"] == "succeeded", operation
+            assert operation["params"]["compatibility"] == {"chip_target": "esp32s31"}
             assert operation["result"]["validated"] is True
             assert (
                 operation["result"]["target_inventory"][
@@ -365,11 +376,20 @@ def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
                 "/v1/devices/demo-a1b2c3d4/system-update",
                 data=archive_path.read_bytes(),
                 headers={"Content-Type": "application/vnd.esp-iris.system-update+zip",
-                         "X-Operation-ID": operation_id},
+                         "X-Operation-ID": operation_id,
+                         "X-Iris-Compatibility": json.dumps({"chip_target": "esp32s31"})},
             )
             assert repeated.status == 202
             assert (await repeated.json())["accepted"] is False
             assert len(store.operations()) == 1
+            conflict = await client.post(
+                "/v1/devices/demo-a1b2c3d4/system-update",
+                data=archive_path.read_bytes(),
+                headers={"Content-Type": "application/vnd.esp-iris.system-update+zip",
+                         "X-Operation-ID": operation_id,
+                         "X-Iris-Compatibility": json.dumps({"board_id": "different"})},
+            )
+            assert conflict.status == 409
         finally:
             await client.close()
             await hub.close()

@@ -17,6 +17,7 @@ from typing import Any
 
 from aiohttp import BodyPartReader, WSMsgType, web
 
+from .compatibility import compatibility_expectation, validate_update_compatibility
 from .contracts import GatewayHub
 from .file_routes import register_file_routes
 from .files import FileServiceError, file_error_http_status
@@ -690,11 +691,15 @@ class GatewayService:
         operation_id: str,
         execution_mode: str = "recovery",
         validation_mode: str = DEFAULT_OTA_VALIDATION_MODE,
+        compatibility: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if execution_mode not in {"recovery", "application"}:
             raise ValueError("OTA execution mode must be recovery or application")
         validation_mode = _require_ota_validation_mode(validation_mode)
         before = await self.device_hub.status(device_id)
+        required_compatibility = validate_update_compatibility(
+            before, metadata.get("chip_id"), compatibility
+        )
         timeout = health_timeout(before, getattr(self, "ota_health_timeout", None))
         if (
             before.get("ota_project_name_match_required", False)
@@ -706,6 +711,7 @@ class GatewayService:
             )
         previous_boot = before.get("boot_id")
         recovery_boot = None
+        writer_status = before
         if execution_mode == "recovery" and before.get("firmware_mode") != "recovery":
             await self.operations.progress(
                 operation_id,
@@ -744,6 +750,7 @@ class GatewayService:
                     and recovery_status.get("boot_id") != previous_boot
                 ):
                     recovery_boot = recovery_status.get("boot_id")
+                    writer_status = recovery_status
                     break
             if recovery_boot is None:
                 raise OperationOutcomeUnknown(
@@ -756,6 +763,10 @@ class GatewayService:
                 recovery_boot_id=recovery_boot,
             )
 
+        validate_update_compatibility(
+            writer_status, metadata.get("chip_id"), required_compatibility,
+            recovery=execution_mode == "recovery",
+        )
         last_device_progress = -10
 
         async def report_progress(progress: dict[str, Any]) -> None:
@@ -888,6 +899,7 @@ class GatewayService:
         device_id: str,
         bundle: SystemUpdateBundle,
         operation_id: str,
+        compatibility: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await run_system_update(
             self.device_hub,
@@ -899,6 +911,7 @@ class GatewayService:
             operation_id,
             validation_mode=DEFAULT_OTA_VALIDATION_MODE,
             health_timeout_override=getattr(self, "ota_health_timeout", None),
+            compatibility=compatibility,
         )
 
     async def closed_loop_restart(
@@ -1720,6 +1733,7 @@ def create_app(service: GatewayService) -> web.Application:
             )
         body = await _json_body(request)
         artifact_id = str(body.get("artifact_id", ""))
+        compatibility = compatibility_expectation(body.get("compatibility"))
         execution_mode = str(body.get("execution_mode", execution_mode))
         validation_mode = _require_ota_validation_mode(
             str(body.get("validation_mode", DEFAULT_OTA_VALIDATION_MODE))
@@ -1741,6 +1755,7 @@ def create_app(service: GatewayService) -> web.Application:
                 "artifact_id": artifact_id,
                 "execution_mode": execution_mode,
                 "validation_mode": validation_mode,
+                "compatibility": compatibility,
             },
             lambda: service.closed_loop_ota(
                 device_id,
@@ -1749,6 +1764,7 @@ def create_app(service: GatewayService) -> web.Application:
                 operation_id,
                 execution_mode=execution_mode,
                 validation_mode=validation_mode,
+                compatibility=compatibility,
             ),
             operation_id=operation_id,
         )
@@ -1778,6 +1794,9 @@ def create_app(service: GatewayService) -> web.Application:
             raise ValueError("system update requires an .irisfw archive")
         device_id = service.resolve_device(request.match_info["device_id"])
         archive = await request.read()
+        compatibility = compatibility_expectation(json.loads(
+            request.headers.get("X-Iris-Compatibility", "{}")
+        ))
         bundle = load_system_update_bundle(
             archive, trusted_public_key=service.system_update_trust_key
         )
@@ -1790,9 +1809,10 @@ def create_app(service: GatewayService) -> web.Application:
             {
                 "bundle": bundle.as_dict(),
                 "archive_sha256": hashlib.sha256(archive).hexdigest(),
+                "compatibility": compatibility,
             },
             lambda: service.closed_loop_system_update(
-                device_id, bundle, operation_id
+                device_id, bundle, operation_id, compatibility=compatibility
             ),
             operation_id=operation_id,
         )

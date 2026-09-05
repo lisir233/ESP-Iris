@@ -6,6 +6,43 @@ config ESP_IRIS_ENABLE
 
 if ESP_IRIS_ENABLE
 
+menu "Declared firmware compatibility"
+
+config ESP_IRIS_FIRMWARE_ROLE
+    int "Firmware role (0 unknown, 1 normal application, 2 recovery)"
+    range 0 2
+    default 0
+    help
+        Products must explicitly declare each image role. Project names and
+        version strings are not used to infer this value.
+
+config ESP_IRIS_PRODUCT_CONTRACT
+    string "Product compatibility contract identifier"
+    default ""
+
+config ESP_IRIS_BOARD_ID
+    string "Board compatibility identifier"
+    default ""
+
+config ESP_IRIS_LAYOUT_ID
+    string "Partition layout contract identifier"
+    default ""
+    help
+        A declaration, not an inventory hash. Validate the actual partition
+        inventory before system updates.
+
+config ESP_IRIS_RECOVERY_ABI
+    int "Recovery ABI version (0 unspecified)"
+    range 0 65535
+    default 0
+
+config ESP_IRIS_HEALTH_TIMEOUT_MS
+    int "Product health observation timeout in milliseconds"
+    range 1000 600000
+    default 45000
+
+endmenu
+
 config ESP_IRIS_NVS_PARTITION_NAME
     string "NVS partition used for device identity and pairing state"
     default "nvs"

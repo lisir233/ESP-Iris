@@ -7,7 +7,6 @@ import pytest
 
 from iris_gateway.hub import (
     IrisHub,
-    _firmware_mode_from_identity,
     _next_complete_screen_frame,
 )
 from iris_gateway.protocol import (
@@ -59,17 +58,6 @@ class SupervisorLink:
 
     async def close(self) -> None:
         self.closed = True
-
-
-def test_usb_firmware_mode_uses_hello_identity_instead_of_com_port_name() -> None:
-    assert _firmware_mode_from_identity("esp_iris_ota", "1.0.0-recovery") == "recovery"
-    assert _firmware_mode_from_identity("esp_iris_ota", "1.0.0-a") == "normal"
-    assert (
-        _firmware_mode_from_identity(
-            "esp_iris_crash_recovery", "1.0.0-crash-application"
-        )
-        == "normal"
-    )
 
 
 def test_screen_frame_timeout_covers_the_whole_receive_operation() -> None:

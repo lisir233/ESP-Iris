@@ -24,16 +24,6 @@ RAW_MEDIA_FORMATS = {1, 2}
 ENCODED_MEDIA_FORMATS = {3, 4}
 
 
-def _firmware_mode_from_identity(project_name: str, app_version: str) -> str:
-    """Classify a USB image from identity fields that survive re-enumeration."""
-    version = app_version.casefold()
-    if "recovery" in version:
-        return "recovery"
-    if any(marker in version for marker in ("application", "normal", "stable")):
-        return "normal"
-    return "recovery" if "recovery" in project_name.casefold() else "normal"
-
-
 async def _next_complete_screen_frame(
     queue: asyncio.Queue[dict[str, Any]],
     full_description: dict[str, Any],
@@ -669,10 +659,7 @@ class IrisHub:
             raise RuntimeError(
                 "mDNS device_id does not match the ESP-Iris HELLO identity"
             )
-        if session.link.endpoint.startswith("usb:"):
-            self._endpoint_states[session.link.endpoint]["firmware_mode"] = (
-                _firmware_mode_from_identity(info.project_name, info.app_version)
-            )
+        self._endpoint_states[session.link.endpoint]["firmware_mode"] = info.firmware_mode
         existing = self._devices.get(info.device_id)
         if existing is not None and existing is not session:
             await session.close()

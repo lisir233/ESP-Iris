@@ -98,6 +98,7 @@ class DemoHub:
             "transport": 1,
             "transport_name": "USB Highspeed",
             "firmware_mode": firmware_mode,
+            "chip_target": "esp32s31",
             "project_name": "esp-iris-template",
             "app_version": version,
             "idf_version": "v6.0-demo",
