@@ -1,5 +1,5 @@
 {
-  "schema": "esp-iris-system-update/v1",
+  "schema": "esp-iris-system-update/v2",
   "release": "1.0.0",
   "minimum_recovery_version": "1.0.0",
   "signature": {
@@ -10,9 +10,6 @@
     "chip_id": 32,
     "flash_size": 16777216
   },
-  "source_layout_sha256": [
-    "0000000000000000000000000000000000000000000000000000000000000000"
-  ],
   "target_layout_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "components": [
     {

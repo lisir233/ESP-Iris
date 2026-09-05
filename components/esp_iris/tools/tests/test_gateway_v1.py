@@ -305,7 +305,6 @@ def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
         manifest = {
             "schema": SYSTEM_UPDATE_SCHEMA,
             "target": {"chip_id": 0x20, "flash_size": 16 * 1024 * 1024},
-            "source_layout_sha256": ["00" * 32],
             "target_layout_sha256": "00" * 32,
             "components": [
                 {

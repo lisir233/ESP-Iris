@@ -488,7 +488,12 @@ component_count:u8, flags:u8, reserved:u16, manifest_sha256[32],
 manifest[manifest_size], signature[signature_size]
 ```
 
-The manifest and optional signature are bounded by Kconfig. A zero
+The manifest and optional signature are bounded by Kconfig. Manifest v1
+authorizes an explicit list of complete source partition-table hashes.
+Manifest v2 removes that product-specific source-layout allowlist: the product
+backend must validate source-to-target compatibility before accepting any
+destructive component write. The complete target partition-table hash remains
+mandatory for post-reboot inventory validation. A zero
 `signature_size` represents an unsigned update. ESP-Iris always verifies the
 manifest SHA-256; the product backend decides whether a signature is required
 and enforces the product Flash policy.
@@ -552,9 +557,11 @@ current Flash contents, not copied from sysmeta. Bootloader and partition-table
 hashes cover exact product-defined protected ranges including erased-byte
 (`0xff`) padding; the bundle builder uses the same ranges. For the standard
 layout this is the bootloader start through the byte before the partition
-table, plus the complete 4 KiB partition-table sector. The Gateway checks the
-source partition-table hash before BEGIN and verifies target inventory,
-operation ID, application identity, and product health after reboot.
+table, plus the complete 4 KiB partition-table sector. For manifest v1 the
+Gateway checks the source partition-table hash before BEGIN. For manifest v2,
+source compatibility is owned by the product backend. The Gateway verifies
+target inventory, operation ID, application identity, and product health after
+reboot for both versions.
 
 ## Local TCP discovery (outside the wire envelope)
 
