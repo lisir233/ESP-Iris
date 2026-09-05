@@ -94,4 +94,26 @@ static void test_coalesced_frames(void) {
         }
     }
 }
-int main(void) { test_rpc_lengths(); test_coalesced_frames(); return 0; }
+static void test_claim_timeout(void) {
+    iris_runtime_t rt = {0};
+    now_us = 0; starts = stops = 0; candidate = false;
+    assert(iris_transport_start(&rt) == ESP_OK);
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_NONE);
+    candidate = true;
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_CONNECTED);
+    assert(!rt.transport.committed);
+    now_us = IRIS_CLAIM_TIMEOUT_US - 1;
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_NONE);
+    now_us++;
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_DISCONNECTED);
+    assert(rt.transport.active_ops == NULL && stops == 1);
+    candidate = true;
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_CONNECTED);
+    iris_transport_commit(&rt);
+    assert(rt.transport.committed);
+    now_us += 10 * IRIS_CLAIM_TIMEOUT_US;
+    assert(iris_transport_poll(&rt) == IRIS_LINK_EVENT_NONE);
+    assert(rt.transport.active_ops != NULL);
+    iris_transport_stop(&rt);
+}
+int main(void) { test_rpc_lengths(); test_coalesced_frames(); test_claim_timeout(); return 0; }

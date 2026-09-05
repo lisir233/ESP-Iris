@@ -163,11 +163,9 @@ iris_link_event_t iris_transport_poll(iris_runtime_t *runtime)
         manager->active_state = state;
         manager->scan_start = (uint8_t)((index + 1U) %
                                         IRIS_TRANSPORT_COUNT);
-        manager->committed = IRIS_TRANSPORT_COUNT == 1U;
+        /* A physical connection never grants ownership before HELLO_ACK. */
+        manager->committed = false;
         manager->claim_deadline_us = now + IRIS_CLAIM_TIMEOUT_US;
-        if (manager->committed) {
-            stop_losers(runtime);
-        }
         return IRIS_LINK_EVENT_CONNECTED;
     }
     return IRIS_LINK_EVENT_NONE;

@@ -643,3 +643,10 @@ the selected product/chip/board/Recovery ABI contract and verify the actual
 system inventory/layout hash before writes. Existing `AUTH_MODE` and capability
 bits continue to describe transport security and available services; this change
 does not add encryption, signing, or new target support.
+
+All transport configurations, including TCP-only firmware, keep a physical
+connection provisional until a valid HELLO_ACK. The configured claim deadline
+releases unhandshaken clients; an authenticated/acknowledged owner is exempt
+from this provisional deadline. For USB Serial/JTAG, a rejected candidate keeps
+the existing claim cooldown before it may compete again. This is a bounded
+handshake lease, not a new application idle timeout.
