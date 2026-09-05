@@ -125,11 +125,17 @@ def _migration_4(db: sqlite3.Connection) -> None:
     )
 
 
+def _migration_5(db: sqlite3.Connection) -> None:
+    # Deliberately do not fabricate identities for historical requests.
+    db.execute("ALTER TABLE operations ADD COLUMN request_fingerprint TEXT")
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     _migration_1,
     _migration_2,
     _migration_3,
     _migration_4,
+    _migration_5,
 )
 LATEST_SCHEMA_VERSION = len(MIGRATIONS)
 

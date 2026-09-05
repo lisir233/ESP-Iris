@@ -361,6 +361,15 @@ def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
             )
             saved = list((store.artifacts_dir / "demo-a1b2c3d4").glob("*.irisfw"))
             assert len(saved) == 1
+            repeated = await client.post(
+                "/v1/devices/demo-a1b2c3d4/system-update",
+                data=archive_path.read_bytes(),
+                headers={"Content-Type": "application/vnd.esp-iris.system-update+zip",
+                         "X-Operation-ID": operation_id},
+            )
+            assert repeated.status == 202
+            assert (await repeated.json())["accepted"] is False
+            assert len(store.operations()) == 1
         finally:
             await client.close()
             await hub.close()

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import pathlib
 import re
+import tempfile
 import time
 import uuid
 from typing import Any
@@ -210,33 +212,46 @@ def register_file_routes(app: web.Application, service: Any) -> None:
                 total_bytes=expected,
             )
 
-        async def call() -> dict[str, Any]:
-            await progress(0, total_size)
-            return await service.hub.file_upload(
-                device_id,
-                volume,
-                path,
-                request.content.iter_chunked(64 * 1024),
-                total_size=total_size,
-                overwrite=overwrite,
-                if_match=if_match,
-                progress=progress,
-            )
+        # Bind the actual bytes before reserving an operation ID or writing to
+        # the device. A disk spool keeps the 32 MiB limit off the Python heap.
+        with tempfile.TemporaryFile() as staged:
+            digest = hashlib.sha256()
+            received = 0
+            async for chunk in request.content.iter_chunked(64 * 1024):
+                received += len(chunk)
+                if received > total_size:
+                    raise ValueError("file upload exceeds its declared Content-Length")
+                digest.update(chunk)
+                staged.write(chunk)
+            if received != total_size:
+                raise ValueError("file upload does not match its declared Content-Length")
+            staged.seek(0)
 
-        operation, result, created = await service.operations.execute(
-            device_id,
-            request_actor(request),
-            "file.upload",
-            {
-                "volume": volume,
-                "path": path,
-                "size": total_size,
-                "overwrite": overwrite,
-                "if_match": if_match,
-            },
-            call,
-            operation_id=operation_id,
-        )
+            async def chunks():
+                while True:
+                    chunk = staged.read(64 * 1024)
+                    if not chunk:
+                        return
+                    yield chunk
+
+            async def call() -> dict[str, Any]:
+                await progress(0, total_size)
+                return await service.hub.file_upload(
+                    device_id, volume, path, chunks(), total_size=total_size,
+                    overwrite=overwrite, if_match=if_match, progress=progress,
+                )
+
+            operation, result, created = await service.operations.execute(
+                device_id,
+                request_actor(request),
+                "file.upload",
+                {
+                    "volume": volume, "path": path, "size": total_size,
+                    "sha256": digest.hexdigest(), "overwrite": overwrite, "if_match": if_match,
+                },
+                call,
+                operation_id=operation_id,
+            )
         return web.json_response(
             {
                 "operation": operation,

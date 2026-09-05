@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from .migrations import apply_migrations
+from .operation_identity import request_fingerprint, require_same_request
 
 
 def _json(value: Any) -> str:
@@ -241,14 +242,13 @@ class GatewayStore:
         return items
 
     def create_operation(self, operation: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-        existing = self.operation(str(operation["operation_id"]))
-        if existing is not None:
-            return existing, False
-        self.db.execute(
+        fingerprint = operation.get("request_fingerprint") or request_fingerprint(operation)
+        cursor = self.db.execute(
             """INSERT INTO operations(
                    operation_id, device_id, actor_type, actor_name, action,
-                   params_json, status, created_ns, queue_position)
-               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   params_json, status, created_ns, queue_position, request_fingerprint)
+               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(operation_id) DO NOTHING""",
             (
                 operation["operation_id"],
                 operation["device_id"],
@@ -259,10 +259,14 @@ class GatewayStore:
                 operation["status"],
                 operation["created_ns"],
                 operation.get("queue_position", 0),
+                fingerprint,
             ),
         )
         self.db.commit()
-        return self.operation(str(operation["operation_id"])) or operation, True
+        stored = self.operation(str(operation["operation_id"]))
+        assert stored is not None
+        require_same_request(stored, fingerprint)
+        return stored, cursor.rowcount == 1
 
     def update_operation(self, operation_id: str, **changes: Any) -> dict[str, Any]:
         columns = {

@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .observability import MetricsRegistry
+from .operation_identity import request_fingerprint, require_same_request
 from .security import Actor
 from .state_machine import TERMINAL_OPERATION_STATES, operation_transition
 from .store import GatewayStore
@@ -66,6 +67,13 @@ class OperationManager:
         self._maintenance_pending: set[str] = set()
         self._maintenance_active: set[str] = set()
         self.metrics = metrics or MetricsRegistry()
+
+    @staticmethod
+    def _fingerprint(device_id: str, actor: Actor, action: str, params: dict[str, Any]) -> str:
+        return request_fingerprint({
+            "device_id": device_id, "actor_type": actor.kind, "actor_name": actor.name,
+            "actor_scopes": sorted(actor.scopes), "action": action, "params": params,
+        })
 
     def maintenance_state(self, device_id: str) -> str | None:
         if device_id in self._maintenance_active:
@@ -200,14 +208,17 @@ class OperationManager:
                 f"device {device_id} is reserved for host-side maintenance"
             )
         operation_id = operation_id or str(uuid.uuid4())
+        fingerprint = self._fingerprint(device_id, actor, action, params)
         existing = self.store.operation(operation_id)
         if existing is not None:
+            require_same_request(existing, fingerprint)
             return existing, False
         if operation_id in self._submission_ids:
             for _ in range(10):
                 await asyncio.sleep(0)
                 existing = self.store.operation(operation_id)
                 if existing is not None:
+                    require_same_request(existing, fingerprint)
                     return existing, False
             raise RuntimeError("concurrent operation submission was not registered")
         self._submission_ids.add(operation_id)
@@ -240,6 +251,10 @@ class OperationManager:
         operation = self.store.operation(operation_id)
         if operation is None:
             raise RuntimeError("background operation was not registered")
+        require_same_request(operation, fingerprint)
+        if task.done():
+            _, _, created = task.result()
+            return operation, created
         return operation, True
 
     async def cancel_queued(self) -> int:
@@ -294,6 +309,7 @@ class OperationManager:
                 "actor_name": actor.name,
                 "action": action,
                 "params": _safe_value(params),
+                "request_fingerprint": self._fingerprint(device_id, actor, action, params),
                 "status": "queued" if serialized else "running",
                 "created_ns": time.time_ns(),
                 "queue_position": queue_position,

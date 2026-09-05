@@ -19,6 +19,7 @@ from aiohttp import BodyPartReader, WSMsgType, web
 
 from .contracts import GatewayHub
 from .file_routes import register_file_routes
+from .operation_identity import OperationConflict
 from .files import FileServiceError, file_error_http_status
 from .firmware import inspect_firmware_image
 from .http_support import (
@@ -949,6 +950,8 @@ def create_app(service: GatewayService) -> web.Application:
             return _error(503, "cached_state_unavailable", str(exc))
         except PermissionError as exc:
             return _error(403, "permission_denied", str(exc))
+        except OperationConflict as exc:
+            return _error(409, "operation_id_conflict", str(exc))
         except DeviceMaintenance as exc:
             return _error(423, "device_maintenance", str(exc))
         except OperationCancelled as exc:
@@ -1301,7 +1304,8 @@ def create_app(service: GatewayService) -> web.Application:
             device_id,
             _actor(request),
             "rpc.raw",
-            {"service_id": service_id, "method_id": method_id, "request_bytes": len(payload), "deadline_ms": deadline_ms},
+            {"service_id": service_id, "method_id": method_id, "request_bytes": len(payload),
+             "request_sha256": hashlib.sha256(payload).hexdigest(), "deadline_ms": deadline_ms},
             lambda: service.device_hub.rpc(
                 device_id,
                 service_id,
@@ -1341,7 +1345,8 @@ def create_app(service: GatewayService) -> web.Application:
             device_id,
             _actor(request),
             f"rpc.{name}",
-            {"method": name, "request_bytes": len(raw), "deadline_ms": deadline_ms},
+            {"method": name, "service_id": int(method["service_id"]), "method_id": int(method["method_id"]),
+             "request_bytes": len(raw), "request_sha256": hashlib.sha256(raw).hexdigest(), "deadline_ms": deadline_ms},
             lambda: service.device_hub.rpc(
                 device_id,
                 int(method["service_id"]),
@@ -1403,6 +1408,9 @@ def create_app(service: GatewayService) -> web.Application:
             CONSOLE_METHOD_NAME,
             {
                 "command": command_name,
+                "service_id": int(method["service_id"]),
+                "method_id": int(method["method_id"]),
+                "request_sha256": hashlib.sha256(encoded).hexdigest(),
                 "request_bytes": len(encoded),
                 "deadline_ms": deadline_ms,
             },
@@ -1490,7 +1498,7 @@ def create_app(service: GatewayService) -> web.Application:
             return blocked
         body = await _json_body(request)
         device_id = service.resolve_device(request.match_info["device_id"])
-        operation, result, _ = await service.operations.execute(
+        operation, result, created = await service.operations.execute(
             device_id,
             _actor(request),
             "media.screenshot",
@@ -1500,6 +1508,9 @@ def create_app(service: GatewayService) -> web.Application:
             serialized=False,
             result_summary=lambda value: {"description": value[0], "bytes": len(value[1])},
         )
+        if not created:
+            return web.json_response({"operation": operation, "idempotent_reuse": True,
+                                      "screenshot": None})
         description, data = result
         image = encode_media_image(description, data)
         if len(image.data) > 16 * 1024 * 1024:
@@ -1544,7 +1555,7 @@ def create_app(service: GatewayService) -> web.Application:
             device_id,
             _actor(request),
             "media.mirror_start" if start else "media.mirror_stop",
-            {"channel": channel_name, "fps": fps},
+            {"channel": channel_name, "fps": fps, "description": body.get("description", {}) if start else {}},
             call,
             operation_id=request.headers.get("X-Operation-ID"),
         )
@@ -1593,7 +1604,7 @@ def create_app(service: GatewayService) -> web.Application:
             device_id,
             _actor(request),
             "input.gesture",
-            {"type": body.get("type", "pointer"), "move_count": len(moves), "begin": body.get("begin"), "end": body.get("end")},
+            {"event": body},
             lambda: service.device_hub.input_event(device_id, body),
             operation_id=request.headers.get("X-Operation-ID"),
         )
@@ -1617,7 +1628,7 @@ def create_app(service: GatewayService) -> web.Application:
             device_id,
             _actor(request),
             "audio.upload",
-            {"bytes": len(data), "content_type": content_type},
+            {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "content_type": content_type},
             lambda: audio_upload_adapter(device_id, data, content_type),
             operation_id=request.headers.get("X-Operation-ID"),
         )
@@ -1740,9 +1751,7 @@ def create_app(service: GatewayService) -> web.Application:
         bundle = load_system_update_bundle(
             archive, trusted_public_key=service.system_update_trust_key
         )
-        artifact_path = service.store.save_artifact(
-            device_id, "system-update", archive, "irisfw"
-        )
+        service.store.save_artifact(device_id, "system-update", archive, "irisfw")
         operation_id = request.headers.get("X-Operation-ID") or str(uuid.uuid4())
         operation, created = await service.operations.submit(
             device_id,
@@ -1750,7 +1759,7 @@ def create_app(service: GatewayService) -> web.Application:
             "firmware.system_update",
             {
                 "bundle": bundle.as_dict(),
-                "artifact_path": str(artifact_path),
+                "archive_sha256": hashlib.sha256(archive).hexdigest(),
             },
             lambda: service.closed_loop_system_update(
                 device_id, bundle, operation_id
