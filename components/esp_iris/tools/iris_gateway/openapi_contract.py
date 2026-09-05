@@ -43,6 +43,12 @@ def build_openapi(auth_required: bool) -> dict[str, Any]:
         "/v1/events": {"get": {"summary": "Cursor-based event history"}},
         "/v1/events/ws": {"get": {"summary": "Resumable event WebSocket"}},
         "/v1/operations": {"get": {"summary": "Device operation records"}},
+        "/v1/operations/{operation_id}/reconcile": {
+            "post": {"summary": "Append a read-only observation of an uncertain operation; never replay writes"}
+        },
+        "/v1/operations/{operation_id}/reconciliations": {
+            "get": {"summary": "Append-only reconciliation evidence; original status is unchanged"}
+        },
         "/v1/devices/{device_id}/files/volumes": {
             "get": {"summary": "Registered file volumes and capabilities"}
         },

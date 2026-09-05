@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from .contracts import GatewayHub
 from .firmware import inspect_firmware_image
 from .operations import OperationManager, OperationOutcomeUnknown
+from .reconciliation import health_timeout
 from .system_update import SystemUpdateBundle, SystemUpdateComponentKind
 
 PreserveCoreDump = Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
@@ -25,10 +26,12 @@ async def run_system_update(
     operation_id: str,
     *,
     validation_mode: str,
+    health_timeout_override: float | None = None,
 ) -> dict[str, Any]:
     """Run a recovery-only update and prove the resulting system state."""
 
     before = await hub.status(device_id)
+    timeout = health_timeout(before, health_timeout_override)
     previous_boot = before.get("boot_id")
     preserved_coredump = await preserve_coredump(device_id)
     if preserved_coredump is not None:
@@ -83,6 +86,10 @@ async def run_system_update(
         stage="validating_plan",
         progress_permille=50,
         source_inventory=inventory_before,
+        writer_boot_id=writer_boot,
+        target_application=next((inspect_firmware_image(item.data).as_dict()
+                                 for item in bundle.components
+                                 if item.kind is SystemUpdateComponentKind.APPLICATION), None),
     )
     try:
         wire_operation_id = uuid.UUID(operation_id).bytes
@@ -127,7 +134,7 @@ async def run_system_update(
                 await hub.restart(device_id, 250)
             except (ConnectionError, OSError, KeyError):
                 pass
-        deadline = asyncio.get_running_loop().time() + 60
+        deadline = asyncio.get_running_loop().time() + timeout
         new_boot: Any = None
         healthy = False
         while asyncio.get_running_loop().time() < deadline:
@@ -142,12 +149,17 @@ async def run_system_update(
                 healthy = True
                 break
         if new_boot is None or not healthy:
-            raise RuntimeError(
-                "system update did not reconnect as a healthy application "
-                "within 60 seconds"
+            raise OperationOutcomeUnknown(
+                f"system update was written but healthy acceptance was not observed within {timeout:g} seconds"
             )
         status = await hub.status(device_id)
         inventory_after = await hub.system_update_inventory(device_id)
+        after = await hub.status(device_id)
+        if status.get("boot_id") != new_boot or after.get("boot_id") != new_boot:
+            raise OperationOutcomeUnknown("system update rebooted after HEALTHY; acceptance needs reconciliation")
+        status = after
+    except (ConnectionError, OSError, KeyError, LookupError) as exc:
+        raise OperationOutcomeUnknown("system update outcome needs read-only reconciliation") from exc
     finally:
         hub.unsubscribe(device_id, queue)
 

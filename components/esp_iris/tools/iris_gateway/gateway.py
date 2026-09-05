@@ -19,7 +19,6 @@ from aiohttp import BodyPartReader, WSMsgType, web
 
 from .contracts import GatewayHub
 from .file_routes import register_file_routes
-from .operation_identity import OperationConflict
 from .files import FileServiceError, file_error_http_status
 from .firmware import inspect_firmware_image
 from .http_support import (
@@ -41,12 +40,14 @@ from .http_support import (
 from .media import encode_media_image
 from .observability import MetricsRegistry, normalize_event
 from .openapi_contract import build_openapi
+from .operation_identity import OperationConflict
 from .operations import (
     DeviceMaintenance,
     OperationCancelled,
     OperationManager,
     OperationOutcomeUnknown,
 )
+from .reconciliation import health_timeout, reconcile_operation, reconciliation_records
 from .security import Actor, AuthManager
 from .store import GatewayStore
 from .system_update import (
@@ -108,7 +109,7 @@ def _validate_ota_identity(
     if not expected:
         raise RuntimeError(f"OTA artifact is missing the expected {label}")
     if not actual:
-        raise RuntimeError(f"device did not report its {label}")
+        raise OperationOutcomeUnknown(f"device did not report its {label}; acceptance remains unknown")
     if actual != expected:
         raise RuntimeError(
             f"device reconnected with an unexpected {label}: "
@@ -133,6 +134,7 @@ class GatewayService:
         require_local_auth: bool = False,
         frontend_dist: pathlib.Path | None = None,
         system_update_trust_key: bytes | None = None,
+        ota_health_timeout: float | None = None,
     ) -> None:
         self.store = store
         self.instance_id = instance_id
@@ -140,6 +142,9 @@ class GatewayService:
         self.require_local_auth = require_local_auth
         self.frontend_dist = frontend_dist
         self.system_update_trust_key = system_update_trust_key
+        if ota_health_timeout is not None:
+            health_timeout({}, ota_health_timeout)
+        self.ota_health_timeout = ota_health_timeout
         self.auth = AuthManager(store)
         self.hub: GatewayHub | None = None
         self.metrics = MetricsRegistry()
@@ -690,6 +695,7 @@ class GatewayService:
             raise ValueError("OTA execution mode must be recovery or application")
         validation_mode = _require_ota_validation_mode(validation_mode)
         before = await self.device_hub.status(device_id)
+        timeout = health_timeout(before, getattr(self, "ota_health_timeout", None))
         if (
             before.get("ota_project_name_match_required", False)
             and before.get("project_name")
@@ -804,6 +810,10 @@ class GatewayService:
             )
             if result.get("healthy"):
                 status = await self.device_hub.status(device_id)
+                if status.get("boot_id") is None or status.get("boot_id") == writer_boot:
+                    raise OperationOutcomeUnknown("OTA HEALTHY result has no confirmed new boot")
+                if result.get("boot_id") is not None and result["boot_id"] != status["boot_id"]:
+                    raise OperationOutcomeUnknown("OTA boot changed after HEALTHY result")
                 validation = _validate_ota_identity(
                     status, metadata, validation_mode
                 )
@@ -831,12 +841,14 @@ class GatewayService:
                 progress_permille=925,
                 writer_boot_id=writer_boot,
             )
-            deadline = asyncio.get_running_loop().time() + 45
+            deadline = asyncio.get_running_loop().time() + timeout
             new_boot: Any = None
             healthy = False
             while asyncio.get_running_loop().time() < deadline:
                 try:
-                    event = await asyncio.wait_for(queue.get(), 1.0)
+                    event = await asyncio.wait_for(
+                        queue.get(), min(1.0, max(0.001, deadline - asyncio.get_running_loop().time()))
+                    )
                 except (asyncio.TimeoutError, TimeoutError):
                     continue
                 if event.get("boot_id") != writer_boot and event.get("boot_id") is not None:
@@ -845,8 +857,12 @@ class GatewayService:
                     healthy = True
                     break
             if new_boot is None or not healthy:
-                raise RuntimeError("OTA reconnect/healthy acceptance did not close within 45 seconds")
+                raise OperationOutcomeUnknown(
+                    f"OTA was written, but reconnect/healthy acceptance was not observed within {timeout:g} seconds"
+                )
             status = await self.device_hub.status(device_id)
+            if status.get("boot_id") != new_boot:
+                raise OperationOutcomeUnknown("OTA boot changed after HEALTHY; acceptance needs reconciliation")
             validation = _validate_ota_identity(status, metadata, validation_mode)
             return {
                 **result,
@@ -859,6 +875,10 @@ class GatewayService:
                 "boot_id": new_boot,
                 "healthy": True,
             }
+        except (ConnectionError, OSError, KeyError, LookupError) as exc:
+            raise OperationOutcomeUnknown(
+                "OTA write or post-write observation lost contact; reconcile before another write"
+            ) from exc
         finally:
             if queue is not None:
                 self.device_hub.unsubscribe(device_id, queue)
@@ -878,6 +898,7 @@ class GatewayService:
             bundle,
             operation_id,
             validation_mode=DEFAULT_OTA_VALIDATION_MODE,
+            health_timeout_override=getattr(self, "ota_health_timeout", None),
         )
 
     async def closed_loop_restart(
@@ -1276,6 +1297,15 @@ def create_app(service: GatewayService) -> web.Application:
         if item is None:
             raise KeyError(request.match_info["operation_id"])
         return web.json_response(item)
+
+    async def operation_reconcile(request: web.Request) -> web.Response:
+        item = await reconcile_operation(service.store, service.device_hub,
+                                         request.match_info["operation_id"], _actor(request))
+        return web.json_response(item, status=201)
+
+    async def operation_reconciliations(request: web.Request) -> web.Response:
+        return web.json_response({"reconciliations": reconciliation_records(
+            service.store, request.match_info["operation_id"])})
 
     async def audits(request: web.Request) -> web.Response:
         del request
@@ -1920,6 +1950,8 @@ def create_app(service: GatewayService) -> web.Application:
     app.router.add_get("/v1/events/ws", event_socket)
     app.router.add_get("/v1/operations", operation_list)
     app.router.add_get("/v1/operations/{operation_id}", operation_get)
+    app.router.add_post("/v1/operations/{operation_id}/reconcile", operation_reconcile)
+    app.router.add_get("/v1/operations/{operation_id}/reconciliations", operation_reconciliations)
     register_file_routes(app, service)
     app.router.add_get("/v1/firmware-artifacts", firmware_artifacts)
     app.router.add_post("/v1/firmware-artifacts", firmware_artifacts)

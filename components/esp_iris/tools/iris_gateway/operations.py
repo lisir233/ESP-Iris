@@ -176,10 +176,13 @@ class OperationManager:
         **details: Any,
     ) -> dict[str, Any]:
         progress_permille = max(0, min(int(progress_permille), 1000))
+        current = self.store.operation(operation_id)
+        previous = (current or {}).get("progress") or {}
         operation = self._transition(
             operation_id,
             stage,
             progress_json={
+                **previous,
                 "stage": stage,
                 "progress_permille": progress_permille,
                 "updated_ns": time.time_ns(),
@@ -356,10 +359,13 @@ class OperationManager:
         try:
             result = await call()
         except asyncio.CancelledError:
+            interrupted = self.store.operation(pending.operation_id) or {}
             operation = self._transition(
                 pending.operation_id,
-                "interrupted",
-                error="gateway task was interrupted",
+                "outcome_unknown" if interrupted.get("action") in {
+                    "firmware.ota", "firmware.system_update", "device.restart", "rpc.raw"
+                } else "interrupted",
+                error="gateway task was interrupted; device writes were not replayed",
                 finished_ns=time.time_ns(),
             )
             await self._emit(operation)

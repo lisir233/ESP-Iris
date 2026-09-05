@@ -417,3 +417,26 @@ def test_closed_loop_ota_rejects_project_change_when_required() -> None:
         assert hub.ota_updates == 0
 
     asyncio.run(scenario())
+
+
+def test_closed_loop_ota_rejects_boot_changed_after_healthy():
+    from iris_gateway.operations import OperationOutcomeUnknown
+
+    async def scenario():
+        class RebootAgainHub(RestartRaceHub):
+            async def status(self, device_id):
+                result = await super().status(device_id)
+                if self.status_calls > 1:
+                    result["boot_id"] = 99
+                return result
+
+        service = GatewayService.__new__(GatewayService)
+        service.hub = RebootAgainHub()
+        service.operations = RecordingOperations()
+        with pytest.raises(OperationOutcomeUnknown, match="boot changed after HEALTHY"):
+            await service.closed_loop_ota("device-a", b"firmware", {
+                "sha256": "00" * 32, "project_name": "esp_iris_ota",
+                "version": "1.0.2", "elf_sha256": ELF_SHA256,
+            }, "ota-op")
+
+    asyncio.run(scenario())

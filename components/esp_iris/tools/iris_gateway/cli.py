@@ -128,6 +128,7 @@ async def _web(args: argparse.Namespace) -> None:
         require_local_auth=args.require_local_auth,
         frontend_dist=pathlib.Path(__file__).resolve().parent.parent / "frontend" / "dist",
         system_update_trust_key=system_update_trust_key,
+        ota_health_timeout=args.ota_health_timeout,
     )
     listener_is_loopback = _listen_is_loopback(args.listen)
     default_password_selected = False
@@ -414,6 +415,11 @@ async def _ctl(args: argparse.Namespace) -> int:
             elif command == "system-inventory":
                 url = base + f"/v1/devices/{args.device}/system-inventory"
                 async with session.get(url, ssl=ssl_value) as response:
+                    _output(await _response_json(response), args.json)
+            elif command == "operation-reconcile":
+                async with session.post(
+                    base + f"/v1/operations/{args.operation_id}/reconcile", ssl=ssl_value
+                ) as response:
                     _output(await _response_json(response), args.json)
             elif command in ("ota-status", "ota-watch"):
                 if command == "ota-watch":
@@ -809,6 +815,8 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--listen", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8443)
     web_parser.add_argument("--instance-id", default="default")
+    web_parser.add_argument("--ota-health-timeout", type=float,
+                            help="override product HELLO health timeout, seconds (1..600)")
     web_parser.add_argument("--state-dir")
     web_parser.add_argument("--password-file")
     web_parser.add_argument(
@@ -834,6 +842,8 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument("--make-default", action="store_true")
     commands.add_parser("devices")
     commands.add_parser("health")
+    reconcile = commands.add_parser("operation-reconcile", help="read-only device reconciliation")
+    reconcile.add_argument("operation_id")
     status = commands.add_parser("status")
     status.add_argument("device")
     system_inventory = commands.add_parser("system-inventory")

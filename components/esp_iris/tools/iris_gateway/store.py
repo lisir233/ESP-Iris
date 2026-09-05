@@ -568,6 +568,9 @@ class GatewayStore:
             with (temp / "operations.jsonl").open("w", encoding="utf-8") as handle:
                 for item in reversed(self.operations(limit=1_000_000)):
                     handle.write(_json(item) + "\n")
+            with (temp / "reconciliations.jsonl").open("w", encoding="utf-8") as handle:
+                for row in self.db.execute("SELECT record_json FROM operation_reconciliations ORDER BY rowid"):
+                    handle.write(row[0] + "\n")
             with (temp / "system-audit.jsonl").open("w", encoding="utf-8") as handle:
                 for item in reversed(self.audits(limit=1_000_000)):
                     handle.write(_json(item) + "\n")

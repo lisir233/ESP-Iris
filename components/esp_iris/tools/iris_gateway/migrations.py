@@ -130,12 +130,20 @@ def _migration_5(db: sqlite3.Connection) -> None:
     db.execute("ALTER TABLE operations ADD COLUMN request_fingerprint TEXT")
 
 
+def _migration_6(db: sqlite3.Connection) -> None:
+    db.execute("CREATE TABLE operation_reconciliations ("
+               "reconciliation_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL "
+               "REFERENCES operations(operation_id), record_json TEXT NOT NULL)")
+    db.execute("CREATE INDEX reconciliation_operation ON operation_reconciliations(operation_id)")
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     _migration_1,
     _migration_2,
     _migration_3,
     _migration_4,
     _migration_5,
+    _migration_6,
 )
 LATEST_SCHEMA_VERSION = len(MIGRATIONS)
 

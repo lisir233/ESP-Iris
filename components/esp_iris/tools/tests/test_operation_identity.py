@@ -127,6 +127,7 @@ def test_separate_sqlite_connections_register_once(tmp_path):
 
 def test_v4_database_keeps_legacy_request_unverifiable(tmp_path):
     import sqlite3
+
     from iris_gateway.migrations import MIGRATIONS
 
     db = sqlite3.connect(tmp_path / "gateway.sqlite3")
