@@ -16,7 +16,6 @@ from iris_gateway.protocol import Capability, Channel, Frame, SystemUpdateType
 from iris_gateway.session import DeviceSession
 from iris_gateway.system_update import (
     SYSTEM_UPDATE_SCHEMA,
-    SYSTEM_UPDATE_SCHEMA_V1,
     SystemUpdateBundle,
     SystemUpdateComponent,
     SystemUpdateComponentKind,
@@ -144,27 +143,27 @@ def test_unsigned_bundle_round_trip_requires_no_key(tmp_path) -> None:
     assert bundle.signature == b""
     assert bundle.key_id is None
     assert bundle.as_dict()["signature_verified"] is False
-    assert bundle.schema == SYSTEM_UPDATE_SCHEMA
     assert "source_layout_sha256" not in bundle.as_dict()
 
 
-def test_v1_bundle_keeps_exact_source_layout_authorization(tmp_path) -> None:
+def test_bundle_rejects_obsolete_source_layout_authorization(tmp_path) -> None:
     (tmp_path / "partition-table.bin").write_bytes(b"partition")
     (tmp_path / "ota_0.bin").write_bytes(_application_image())
     manifest = _manifest("00" * 32)
-    manifest["schema"] = SYSTEM_UPDATE_SCHEMA_V1
     manifest["source_layout_sha256"] = ["11" * 32]
     manifest.pop("signature")
-    output = build_system_update_bundle(tmp_path / "v1.irisfw", manifest, tmp_path)
-    bundle = load_system_update_bundle(output)
-    with zipfile.ZipFile(output) as archive:
-        bundled_manifest = json.loads(archive.read("manifest.json"))
-    v1_schema = json.loads(
-        (PROTOCOL_DIR / "system_update_manifest_v1.schema.json").read_text()
-    )
-    validate(bundled_manifest, v1_schema)
-    assert bundle.schema == SYSTEM_UPDATE_SCHEMA_V1
-    assert bundle.source_layout_sha256 == ("11" * 32,)
+    with pytest.raises(ValueError, match="unknown fields: source_layout_sha256"):
+        build_system_update_bundle(tmp_path / "v1.irisfw", manifest, tmp_path)
+
+
+def test_bundle_rejects_obsolete_v2_schema_name(tmp_path) -> None:
+    (tmp_path / "partition-table.bin").write_bytes(b"partition")
+    (tmp_path / "ota_0.bin").write_bytes(_application_image())
+    manifest = _manifest("00" * 32)
+    manifest["schema"] = "esp-iris-system-update/v2"
+    manifest.pop("signature")
+    with pytest.raises(ValueError, match="unsupported system-update manifest schema"):
+        build_system_update_bundle(tmp_path / "v2.irisfw", manifest, tmp_path)
 
 
 def test_unsigned_bundle_is_rejected_when_trust_key_is_configured(tmp_path) -> None:
@@ -278,10 +277,8 @@ def _bundle_for_session() -> SystemUpdateBundle:
         manifest_sha256=hashlib.sha256(manifest).digest(),
         key_id=None,
         signature_verified=False,
-        schema=SYSTEM_UPDATE_SCHEMA,
         chip_id=0x20,
         flash_size=16 * 1024 * 1024,
-        source_layout_sha256=(),
         target_layout_sha256="22" * 32,
         components=(component,),
     )

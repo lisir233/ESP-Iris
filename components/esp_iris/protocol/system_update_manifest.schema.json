@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://esp-iris.dev/schema/system-update-manifest-v2.json",
-  "title": "ESP-Iris System Update Manifest v2",
+  "$id": "https://esp-iris.dev/schema/system-update-manifest-v1.json",
+  "title": "ESP-Iris System Update Manifest v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "esp-iris-system-update/v2"
+      "const": "esp-iris-system-update/v1"
     },
     "release": {
       "type": "string",

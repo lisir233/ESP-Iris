@@ -9,11 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from .contracts import GatewayHub
 from .firmware import inspect_firmware_image
 from .operations import OperationManager, OperationOutcomeUnknown
-from .system_update import (
-    SYSTEM_UPDATE_SCHEMA_V1,
-    SystemUpdateBundle,
-    SystemUpdateComponentKind,
-)
+from .system_update import SystemUpdateBundle, SystemUpdateComponentKind
 
 PreserveCoreDump = Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
 ValidateIdentity = Callable[[Dict[str, Any], Dict[str, Any], str], Dict[str, str]]
@@ -82,14 +78,6 @@ async def run_system_update(
 
     writer_boot = recovery_status.get("boot_id")
     inventory_before = await hub.system_update_inventory(device_id)
-    source_layout = str(inventory_before.get("partition_table_sha256", ""))
-    if (
-        bundle.schema == SYSTEM_UPDATE_SCHEMA_V1
-        and source_layout not in bundle.source_layout_sha256
-    ):
-        raise ValueError(
-            "device partition-table SHA-256 is not authorized by the bundle"
-        )
     await operations.progress(
         operation_id,
         stage="validating_plan",

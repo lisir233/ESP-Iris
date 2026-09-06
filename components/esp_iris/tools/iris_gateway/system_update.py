@@ -24,9 +24,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from .firmware import inspect_firmware_image
 
-SYSTEM_UPDATE_SCHEMA_V1 = "esp-iris-system-update/v1"
-SYSTEM_UPDATE_SCHEMA_V2 = "esp-iris-system-update/v2"
-SYSTEM_UPDATE_SCHEMA = SYSTEM_UPDATE_SCHEMA_V2
+SYSTEM_UPDATE_SCHEMA = "esp-iris-system-update/v1"
 MAX_BUNDLE_BYTES = 32 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 16
 MAX_MANIFEST_BYTES = 2048
@@ -85,16 +83,14 @@ class SystemUpdateBundle:
     manifest_sha256: bytes
     key_id: str | None
     signature_verified: bool
-    schema: str
     chip_id: int
     flash_size: int
-    source_layout_sha256: tuple[str, ...]
     target_layout_sha256: str
     components: tuple[SystemUpdateComponent, ...]
 
     def as_dict(self) -> dict[str, Any]:
-        result: dict[str, Any] = {
-            "schema": self.schema,
+        return {
+            "schema": SYSTEM_UPDATE_SCHEMA,
             "manifest_sha256": self.manifest_sha256.hex(),
             "key_id": self.key_id,
             "chip_id": self.chip_id,
@@ -103,9 +99,6 @@ class SystemUpdateBundle:
             "components": [item.as_dict() for item in self.components],
             "signature_verified": self.signature_verified,
         }
-        if self.source_layout_sha256:
-            result["source_layout_sha256"] = list(self.source_layout_sha256)
-        return result
 
 
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -285,21 +278,17 @@ def load_system_update_bundle(
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("system-update manifest is not valid UTF-8 JSON") from exc
         manifest = _mapping(document, "manifest")
-        schema = manifest.get("schema")
-        if schema not in {SYSTEM_UPDATE_SCHEMA_V1, SYSTEM_UPDATE_SCHEMA_V2}:
+        if manifest.get("schema") != SYSTEM_UPDATE_SCHEMA:
             raise ValueError("unsupported system-update manifest schema")
-        required_fields = {
-            "schema",
-            "target",
-            "target_layout_sha256",
-            "components",
-        }
-        if schema == SYSTEM_UPDATE_SCHEMA_V1:
-            required_fields.add("source_layout_sha256")
         _require_fields(
             manifest,
             "manifest",
-            required=required_fields,
+            required={
+                "schema",
+                "target",
+                "target_layout_sha256",
+                "components",
+            },
             optional={"release", "minimum_recovery_version", "signature"},
         )
         for optional_text in ("release", "minimum_recovery_version"):
@@ -337,19 +326,6 @@ def load_system_update_bundle(
         )
         if flash_size == 0 or flash_size % 4096:
             raise ValueError("target.flash_size must be a non-zero 4 KiB multiple")
-        source_layouts: tuple[str, ...] = ()
-        if schema == SYSTEM_UPDATE_SCHEMA_V1:
-            source_layouts_value = manifest.get("source_layout_sha256")
-            if not isinstance(source_layouts_value, list) or not source_layouts_value:
-                raise ValueError("source_layout_sha256 must be a non-empty array")
-            source_layouts = tuple(
-                _sha256_hex(value, "source layout SHA-256")
-                for value in source_layouts_value
-            )
-            if len(source_layouts) > 16:
-                raise ValueError("source_layout_sha256 contains more than 16 entries")
-            if len(set(source_layouts)) != len(source_layouts):
-                raise ValueError("source_layout_sha256 contains duplicates")
         target_layout = _sha256_hex(
             manifest.get("target_layout_sha256"), "target_layout_sha256"
         )
@@ -487,10 +463,8 @@ def load_system_update_bundle(
             manifest_sha256=hashlib.sha256(manifest_bytes).digest(),
             key_id=key_id,
             signature_verified=bool(signature),
-            schema=str(schema),
             chip_id=chip_id,
             flash_size=flash_size,
-            source_layout_sha256=source_layouts,
             target_layout_sha256=target_layout,
             components=tuple(components),
         )
@@ -630,8 +604,6 @@ def build_system_update_bundle(
 
 __all__ = [
     "SYSTEM_UPDATE_SCHEMA",
-    "SYSTEM_UPDATE_SCHEMA_V1",
-    "SYSTEM_UPDATE_SCHEMA_V2",
     "SystemUpdateBundle",
     "SystemUpdateComponent",
     "SystemUpdateComponentKind",
