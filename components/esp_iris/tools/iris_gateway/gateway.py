@@ -592,6 +592,8 @@ class GatewayService:
             else gate_key
         )
         audit_device_id = expected_device_id or gate_key
+        observation_retries = 0
+        last_observation_error: str | None = None
         try:
             self.store.update_maintenance_lease(lease_id, state="reattaching")
             await self.device_hub.resume_maintenance_endpoint(endpoint)
@@ -626,7 +628,20 @@ class GatewayService:
                 actual_device_id = str(matches[0].get("device_id") or "")
                 if not actual_device_id:
                     continue
-                last_status = await self.device_hub.status(actual_device_id)
+                try:
+                    last_status = await asyncio.wait_for(
+                        self.device_hub.status(actual_device_id),
+                        max(0.001, deadline - asyncio.get_running_loop().time()),
+                    )
+                except (OSError, LookupError, asyncio.TimeoutError) as exc:
+                    # Enumeration/HELLO can win a race with the preceding USB
+                    # session closing. Retry only the read, within this lease's
+                    # acceptance deadline; never restart or flash again.
+                    observation_retries += 1
+                    last_observation_error = type(exc).__name__
+                    continue
+                if last_status.get("device_id") != actual_device_id:
+                    continue
                 capabilities = last_status.get("capability_names", [])
                 current_boot_id = last_status.get("boot_id")
                 previous_boot_id = lease.get("previous_boot_id")
@@ -648,7 +663,9 @@ class GatewayService:
                     completed = self.store.update_maintenance_lease(
                         lease_id,
                         state="released",
-                        evidence_json={**lease.get("evidence", {}), "verification": last_status},
+                        evidence_json={**lease.get("evidence", {}), "verification": last_status,
+                                       "observation_retries": observation_retries,
+                                       "last_observation_error": last_observation_error},
                         finished_ns=time.time_ns(),
                         error=None,
                     )
@@ -670,6 +687,9 @@ class GatewayService:
             self.store.update_maintenance_lease(
                 lease_id,
                 state="verification_failed",
+                evidence_json={**lease.get("evidence", {}),
+                               "observation_retries": observation_retries,
+                               "last_observation_error": last_observation_error},
                 finished_ns=time.time_ns(),
                 error=str(exc),
             )
