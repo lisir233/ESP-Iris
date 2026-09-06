@@ -423,7 +423,7 @@ def load_system_update_bundle(
             for item in components
         )
         # itertools.pairwise is unavailable on the supported Python 3.8/3.9.
-        for previous, current in zip(  # noqa: RUF007
+        for previous, current in zip(
             ordered_regions, ordered_regions[1:]
         ):
             if current[0] < previous[1]:
