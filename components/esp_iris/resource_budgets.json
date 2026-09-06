@@ -1,22 +1,27 @@
 {
   "schema": "esp-iris-resource-budgets/v1",
   "source_lines": {
-    "common_components/esp_iris/src/esp_iris.c": 1050,
-    "common_components/esp_iris/src/esp_iris_services.c": 1900,
-    "common_components/esp_iris/src/esp_iris_files.c": 1700,
-    "common_components/esp_iris/tools/iris_gateway/gateway.py": 1250,
-    "common_components/esp_iris/tools/iris_gateway/session.py": 1000,
-    "common_components/esp_iris/tools/iris_gateway/files.py": 550,
-    "common_components/esp_iris/tools/iris_gateway/file_routes.py": 400,
-    "common_components/esp_iris/tools/frontend/src/Files.tsx": 300,
-    "common_components/esp_iris/tools/frontend/src/Workspace.tsx": 550
+    "components/esp_iris/src/esp_iris.c": 1100,
+    "components/esp_iris/src/esp_iris_services.c": 2050,
+    "components/esp_iris/src/esp_iris_files.c": 1700,
+    "components/esp_iris/tools/iris_gateway/gateway.py": 2050,
+    "components/esp_iris/tools/iris_gateway/session.py": 1200,
+    "components/esp_iris/tools/iris_gateway/files.py": 550,
+    "components/esp_iris/tools/iris_gateway/file_routes.py": 400,
+    "components/esp_iris/tools/frontend/src/Files.tsx": 300,
+    "components/esp_iris/tools/frontend/src/Workspace.tsx": 1550,
+    "components/esp_iris/src/esp_iris_executor.inc": 400,
+    "components/esp_iris/tools/iris_gateway/compatibility.py": 100,
+    "components/esp_iris/tools/iris_gateway/reconciliation.py": 150,
+    "components/esp_iris/tools/iris_gateway/operation_identity.py": 50
   },
   "artifacts_bytes": {
-    "template/build/esp_mosaico_iris.bin": 734003,
-    "common_components/esp_iris/test_apps/services_usb/build/esp_iris_services_usb_test.bin": 471859,
-    "common_components/esp_iris/test_apps/coredump/build/esp_iris_coredump_test.bin": 1258291
+    "build-ci-services-usb/esp_iris_services_usb_test.bin": 471859,
+    "build-ci-coredump/esp_iris_coredump_test.bin": 1258291,
+    "build-ci-system-inventory/esp_iris_system_inventory_test.bin": 1048576,
+    "build-ci-system-update/esp_iris_system_update_test.bin": 1048576
   },
   "directory_bytes": {
-    "common_components/esp_iris/tools/frontend/dist": 409600
+    "components/esp_iris/tools/frontend/dist": 409600
   }
 }

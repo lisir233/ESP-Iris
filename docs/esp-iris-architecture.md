@@ -41,15 +41,18 @@ registrations rather than merely from Kconfig.
 The generic device service owns bounded framing, sequential offsets, streaming
 SHA-256, cancellation, status publication and retained-job integration. It
 does not parse a target offset as write authority and contains no raw-Flash
-endpoint. The product backend is the only Flash-policy boundary: it pins the
-release key, authenticates the exact manifest bytes, validates image formats
-and protected ranges, cross-checks each wire descriptor, stages sensitive
-images in internal RAM and implements the accepted commit/brick policy.
+endpoint. The product backend is the Flash-policy boundary: it validates image
+formats, protected ranges and descriptors, and defines staging and commit
+policy. Signature verification and pinned release keys are product capabilities,
+not guarantees of the generic interface. The current ESP-Mosaico backend accepts
+unsigned plans and stages protected images in PSRAM. Authenticated manifests,
+key provisioning and hardened network deployment remain planned security work;
+the current implementation must not be described as providing those guarantees.
 
-The PC-side release builder creates an authenticated `.irisfw` with a canonical
-manifest and fixed-range `0xff` padding. The Gateway holds only the public key,
-preserves crash evidence, checks the authorized source layout, enters retained
-recovery, streams the signed plan, and accepts success only after a new healthy
+The PC-side release builder creates an `.irisfw` with a canonical manifest and
+fixed-range `0xff` padding; authentication depends on the selected product policy.
+The Gateway checks the source layout, enters retained
+recovery, streams the plan, and accepts success only after a new healthy
 normal boot reports matching actual inventory, operation ID and application
 identity. Workbench and CLI are clients of that same `/v1` operation; neither
 has a device-protocol or Flash bypass.
@@ -103,7 +106,7 @@ record unless direct evidence connects them.
 
 ## Resource budgets
 
-`common_components/esp_iris/resource_budgets.json` contains reviewable source,
+`components/esp_iris/resource_budgets.json` contains reviewable source,
 firmware and frontend limits. `tools/check_esp_iris_budgets.py` is run locally
 and in CI. Raising a limit requires an explanation in the change; generated
 build artifacts are required in the firmware CI job.
@@ -112,7 +115,19 @@ build artifacts are required in the firmware CI job.
 
 1. Update the relevant contract or architecture decision first.
 2. Add or change module tests and fault cases.
-3. Run `python tools/ci.py all` plus ESP32-S31 builds.
+3. Run the commands in `.gitlab-ci.yml` and the host matrix in
+   `.github/workflows/host.yml`; neither a declared CI job nor an older HIL report
+   proves that the current revision passed. Run budget groups separately after
+   their artifacts exist; missing requested artifacts fail the check.
 4. Preserve BIN, ELF, map, sdkconfig and firmware hashes for HIL.
 5. For device validation, expose the Gateway Web workbench to the developer and
    retain the same operation/event evidence used by the Agent.
+
+`tools/release_evidence.py --build <directory> --idf-path <idf> --output <json>`
+requires BIN, ELF, map and sdkconfig for each selected profile, records SHA-256
+and the Iris/IDF revisions, and reports a dirty checkout explicitly. It does not
+claim hardware validation. For ESP-Mosaico, run device validation through the
+product `mosaico.py` commands. Do not use the raw-flash fixture runner on a product
+device; controlled power-loss tests need a dedicated fixture and retained
+identity/partition policy. Additional SoC profiles are planned (IRIS-A01), not
+implicitly supported by the ESP32-S31 build matrix.

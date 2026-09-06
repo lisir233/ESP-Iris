@@ -435,6 +435,7 @@ def test_closed_loop_ota_rejects_boot_changed_after_healthy():
         service.operations = RecordingOperations()
         with pytest.raises(OperationOutcomeUnknown, match="boot changed after HEALTHY"):
             await service.closed_loop_ota("device-a", b"firmware", {
+                "chip_id": 0x20,
                 "sha256": "00" * 32, "project_name": "esp_iris_ota",
                 "version": "1.0.2", "elf_sha256": ELF_SHA256,
             }, "ota-op")

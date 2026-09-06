@@ -34,6 +34,11 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveCount(4);
   await expect(page.getByRole("button", { name: "设备", exact: true })).toBeVisible();
   await expect(page.getByText("Camera Bench").first()).toBeVisible();
+  // Camera Bench intentionally disconnects on the demo's periodic schedule.
+  // Exercise the online workflow against the stable device explicitly rather
+  // than whichever recent device the inventory initially selects.
+  await page.getByRole("button", { name: /Mosaico Alpha demo-a1b2c3d/ }).click();
+  await expect(page.getByRole("heading", { name: "Mosaico Alpha" })).toBeVisible();
   const selectedDeviceName = await page.locator(".device-row.selected strong").innerText();
   const observeMode = page.getByRole("button", { name: "观察模式", exact: true });
   if (await observeMode.isVisible().catch(() => false)) {

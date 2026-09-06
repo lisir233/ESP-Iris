@@ -423,9 +423,49 @@ static void test_unsupported_executor_channel_type(void) {
     assert(response.header.type == ESP_IRIS_CONTROL_ERROR &&
            iris_get_le32(response.payload) == ESP_ERR_NOT_SUPPORTED);
 }
+/* Fixed seed, bounded corpus, production COBS parser and response path. */
+static uint32_t fuzz_random(uint32_t *seed) {
+    *seed ^= *seed << 13; *seed ^= *seed >> 17; *seed ^= *seed << 5;
+    return *seed;
+}
+static void test_fragmented_malformed_corpus(void) {
+    uint32_t seed = UINT32_C(0x49524953);
+    iris_runtime_t rt = {.session_id = 800, .hello_acked = true};
+    for (unsigned round = 0; round < 512; ++round) {
+        size_t remaining = fuzz_random(&seed) % (ESP_IRIS_MAX_WIRE_FRAME_SIZE + 128);
+        while (remaining != 0) {
+            uint8_t noise[61];
+            size_t n = 1 + fuzz_random(&seed) % sizeof(noise);
+            if (n > remaining) n = remaining;
+            for (size_t i = 0; i < n; ++i) noise[i] = (uint8_t)fuzz_random(&seed);
+            size_t offset = 0;
+            while (offset < n) {
+                offset += feed_rx(&rt, noise + offset, n - offset);
+                assert(rt.rx_wire_length < sizeof(rt.rx_wire));
+                assert(rt.tx_wire_length <= sizeof(rt.tx_wire));
+                rt.tx_wire_length = 0;
+            }
+            remaining -= n;
+        }
+        const uint8_t delimiter = 0;
+        (void)feed_rx(&rt, &delimiter, 1); rt.tx_wire_length = 0;
+        uint8_t wire[64]; size_t length;
+        esp_iris_wire_header_t h = {.channel = ESP_IRIS_CHANNEL_CONTROL,
+            .type = ESP_IRIS_CONTROL_PING, .session_id = rt.session_id,
+            .request_id = 1000 + round, .sequence = round + 1};
+        assert(iris_frame_encode(wire, sizeof(wire), &h, NULL, 0, &length) == ESP_OK);
+        for (size_t i = 0; i < length; ++i) assert(feed_rx(&rt, wire + i, 1) == 1);
+        iris_decoded_frame_t response;
+        assert(rt.tx_wire_length > 0);
+        assert(iris_frame_decode_in_place(rt.tx_wire, rt.tx_wire_length - 1, &response) == ESP_OK);
+        assert(response.header.type == ESP_IRIS_CONTROL_PONG &&
+               response.header.request_id == h.request_id);
+        rt.tx_wire_length = 0;
+    }
+}
 int main(void) {
     test_rpc_lengths(); test_coalesced_frames(); test_replay_and_reopen();
-    test_claim_timeout(); test_executor_rpc();
+    test_claim_timeout(); test_executor_rpc(); test_fragmented_malformed_corpus();
 #if CONFIG_ESP_IRIS_OTA
     test_executor_ota();
 #endif

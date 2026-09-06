@@ -7,8 +7,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 from iris_gateway.protocol import (
-    Capability, Channel, ControlType, Frame, ProtocolError, TlvTag,
-    decode_frame, encode_tlv,
+    Capability,
+    Channel,
+    ControlType,
+    Frame,
+    ProtocolError,
+    TlvTag,
+    decode_frame,
+    encode_tlv,
 )
 from iris_gateway.session import DeviceSession
 

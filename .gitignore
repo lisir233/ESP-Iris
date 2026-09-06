@@ -44,6 +44,11 @@ coverage.xml
 htmlcov/
 
 # Test, coverage, and profiling outputs
+**/.codex-runs/
+host-results.xml
+sanitizer-results.xml
+budget-results.json
+release-evidence.json
 TEST_LOGS/
 coverage.info
 coverage_report/

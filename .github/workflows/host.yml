@@ -1,0 +1,50 @@
+name: Host compatibility
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  host:
+    env:
+      IRIS_REQUIRE_HOST_CC: '1'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-15-intel]
+        python: ['3.8', '3.12']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Make MinGW compiler available
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+      - run: python -m pip install -r components/esp_iris/tools/requirements.lock -r components/esp_iris/tools/requirements-test.txt
+      - run: python -m pytest -q --junitxml=host-results.xml
+        working-directory: components/esp_iris/tools
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-${{ matrix.os }}-${{ matrix.python }}
+          path: components/esp_iris/tools/host-results.xml
+  sanitizers:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      IRIS_HOST_SANITIZERS: '1'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r components/esp_iris/tools/requirements-test.txt
+      - run: python -m pytest -q tests/test_firmware_runtime.py --junitxml=sanitizer-results.xml
+        working-directory: components/esp_iris/tools
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitizer-results
+          path: components/esp_iris/tools/sanitizer-results.xml
