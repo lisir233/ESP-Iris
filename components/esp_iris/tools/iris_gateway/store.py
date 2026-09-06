@@ -12,6 +12,7 @@ import zipfile
 from collections.abc import Iterable
 from typing import Any
 
+from .boot_identity import boot_id_text
 from .migrations import apply_migrations
 from .operation_identity import request_fingerprint, require_same_request
 
@@ -326,7 +327,9 @@ class GatewayStore:
         item["params"] = _loads(item.pop("params_json"), {})
         item["result"] = _loads(item.pop("result_json"), None)
         item["progress"] = _loads(item.pop("progress_json", None), None)
-        return item
+        display = boot_id_text(item)
+        display["params"] = item["params"]
+        return display
 
     def save_firmware_artifact(
         self,
@@ -526,7 +529,7 @@ class GatewayStore:
         for row in rows:
             item = dict(row)
             item["details"] = _loads(item.pop("details_json"), {})
-            result.append(item)
+            result.append(boot_id_text(item))
         return result
 
     def save_artifact(

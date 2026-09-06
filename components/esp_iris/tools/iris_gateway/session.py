@@ -11,6 +11,7 @@ import time
 from typing import Any, Awaitable, Callable, Dict
 
 from . import system_update_transport
+from .boot_identity import boot_id_text
 from .files import DeviceFiles
 from .link import Link
 from .protocol import (
@@ -72,7 +73,7 @@ class DeviceInfo:
     health_timeout_ms: int = 45000
 
     def as_dict(self) -> dict[str, Any]:
-        result = dataclasses.asdict(self)
+        result = boot_id_text(dataclasses.asdict(self))
         bits = {
             0: "log",
             1: "events",

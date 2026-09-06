@@ -12,6 +12,7 @@ import zlib
 from collections.abc import AsyncIterator
 from typing import Any, Awaitable, Callable, Dict
 
+from .boot_identity import boot_id_text
 from .compat import remove_prefix
 from .firmware import inspect_firmware_image
 from .system_update import SystemUpdateBundle, SystemUpdateComponentKind
@@ -158,7 +159,7 @@ class DemoHub:
         raise RuntimeError("TCP device links are disabled in demo mode")
 
     def list_devices(self) -> list[dict[str, Any]]:
-        return [dict(device) for device in self._devices.values() if device["connected"]]
+        return [boot_id_text(device) for device in self._devices.values() if device["connected"]]
 
     def list_endpoints(self) -> list[dict[str, Any]]:
         return [
@@ -188,7 +189,7 @@ class DemoHub:
         uptime_us = (time.monotonic_ns() - self._started_ns) // 1000
         wobble = int(1400 * math.sin(self._phase / 8))
         return {
-            **device,
+            **boot_id_text(device),
             "uptime_us": uptime_us,
             "free_internal": 186_240 + wobble,
             "min_free_internal": 174_112,

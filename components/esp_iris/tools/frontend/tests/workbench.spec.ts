@@ -1,6 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 test("desktop workbench keeps the device workflow focused", async ({ page }) => {
+  await page.route("**/v1/devices", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const device of body.devices) {
+      device.boot_id = Number("12238782771570883527");
+      device.boot_id_text = "12238782771570883527";
+    }
+    await route.fulfill({ response, json: body });
+  });
   const errors: string[] = [];
   let systemUpdateUploaded = false;
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
@@ -39,6 +48,9 @@ test("desktop workbench keeps the device workflow focused", async ({ page }) => 
   // than whichever recent device the inventory initially selects.
   await page.getByRole("button", { name: /Mosaico Alpha demo-a1b2c3d/ }).click();
   await expect(page.getByRole("heading", { name: "Mosaico Alpha" })).toBeVisible();
+  await page.locator(".device-details summary").click();
+  await expect(page.locator(".device-details dd").filter({ hasText: /^12238782771570883527$/ })).toBeVisible();
+  await page.locator(".device-details summary").click();
   const selectedDeviceName = await page.locator(".device-row.selected strong").innerText();
   const observeMode = page.getByRole("button", { name: "观察模式", exact: true });
   if (await observeMode.isVisible().catch(() => false)) {

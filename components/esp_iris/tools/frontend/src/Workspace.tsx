@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, formatBytes, formatTime } from "./api";
+import { api, formatBootId, formatBytes, formatTime } from "./api";
 import LogsPanel from "./LogsPanel";
 import { firmwareModeLabel } from "./Shell";
 import type { Device, DeviceStatus, GatewayEvent, Operation } from "./types";
@@ -344,7 +344,7 @@ export default function Workspace({
                 {formatBytes(status?.heap_total)}
               </dd>
               <dt>Boot ID</dt>
-              <dd>{device.boot_id ?? "—"}</dd>
+              <dd>{formatBootId(device)}</dd>
               <dt>设备能力</dt>
               <dd>{device.capability_names?.join(" · ") || "—"}</dd>
             </dl>

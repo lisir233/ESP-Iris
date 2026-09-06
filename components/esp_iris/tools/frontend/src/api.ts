@@ -50,3 +50,17 @@ export function formatDateTime(ns?: number): string {
   const pad = (part: number) => String(part).padStart(2, "0");
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`;
 }
+
+// Boot IDs are uint64; the additive text field survives JSON's Number rounding.
+export function formatBootId(device: { boot_id?: number; boot_id_text?: string }): string {
+  return device.boot_id_text ?? (device.boot_id == null ? "—" : String(device.boot_id));
+}
+
+export function formatRecordJson(value: unknown, space?: number): string {
+  return JSON.stringify(value, function (key, item) {
+    if ((key === "boot_id" || key.endsWith("_boot_id")) && typeof this?.[`${key}_text`] === "string") {
+      return this[`${key}_text`];
+    }
+    return item;
+  }, space) ?? "—";
+}

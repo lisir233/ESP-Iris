@@ -17,6 +17,7 @@ from typing import Any
 
 from aiohttp import BodyPartReader, WSMsgType, web
 
+from .boot_identity import boot_id_text
 from .compatibility import compatibility_expectation, validate_update_compatibility
 from .contracts import GatewayHub
 from .file_routes import register_file_routes
@@ -308,7 +309,7 @@ class GatewayService:
         )
         self.metrics.gauge("devices.connected", len(connected))
         self.metrics.gauge("devices.known", len(result))
-        return result
+        return [boot_id_text(item) for item in result]
 
     def resolve_device(self, value: str) -> str:
         if any(item.get("device_id") == value for item in self.list_devices()):
@@ -321,8 +322,8 @@ class GatewayService:
             cached = self.store.get_setting(f"status.{device_id}")
             if not cached:
                 raise LookupError("no cached device status is available")
-            return {**cached, "stale": True, "mode": "observe"}
-        result = await self.device_hub.status(device_id)
+            return boot_id_text({**cached, "stale": True, "mode": "observe"})
+        result = boot_id_text(await self.device_hub.status(device_id))
         result.update(stale=False, mode="develop", queue=self.operations.queue_state(device_id))
         self.store.set_setting(f"status.{device_id}", result)
         self.store.remember_device(result)

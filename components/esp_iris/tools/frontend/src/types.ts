@@ -10,6 +10,7 @@ export type Device = {
   endpoint?: string;
   transport_name?: string;
   boot_id?: number;
+  boot_id_text?: string;
   capability_names?: string[];
   demo?: boolean;
 };
