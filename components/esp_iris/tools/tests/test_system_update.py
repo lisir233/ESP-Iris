@@ -257,6 +257,135 @@ def test_builder_hashes_complete_bootloader_and_partition_regions(tmp_path) -> N
     )
 
 
+def test_builder_pads_and_validates_recovery_protected_range(tmp_path) -> None:
+    recovery = _application_image()
+    (tmp_path / "factory.bin").write_bytes(recovery)
+    manifest = _manifest("11" * 32)
+    manifest.pop("signature")
+    manifest["components"] = [
+        {
+            "id": 1,
+            "kind": "recovery",
+            "target_offset": 0x20000,
+            "size": 0x2000,
+            "file": "factory.bin",
+        },
+    ]
+    output = build_system_update_bundle(
+        tmp_path / "recovery.irisfw", manifest, tmp_path
+    )
+    bundle = load_system_update_bundle(output)
+    with zipfile.ZipFile(output) as archive:
+        built_manifest = json.loads(archive.read("manifest.json"))
+        assert set(archive.namelist()) == {"manifest.json", "factory.bin"}
+    schema = json.loads(
+        (PROTOCOL_DIR / "system_update_manifest.schema.json").read_text()
+    )
+    validate(built_manifest, schema)
+    component = bundle.components[0]
+    assert component.kind is SystemUpdateComponentKind.RECOVERY
+    assert component.data == recovery.ljust(0x2000, b"\xff")
+    assert component.sha256 == hashlib.sha256(component.data).digest()
+
+
+def test_builder_requires_complete_recovery_protected_size(tmp_path) -> None:
+    (tmp_path / "factory.bin").write_bytes(_application_image())
+    manifest = _manifest("11" * 32)
+    manifest.pop("signature")
+    manifest["components"] = [
+        {
+            "id": 1,
+            "kind": "recovery",
+            "target_offset": 0x20000,
+            "file": "factory.bin",
+        },
+    ]
+    with pytest.raises(TypeError, match="recovery protected size"):
+        build_system_update_bundle(tmp_path / "recovery.irisfw", manifest, tmp_path)
+
+
+def test_builder_requires_sector_aligned_recovery_protected_size(tmp_path) -> None:
+    (tmp_path / "factory.bin").write_bytes(_application_image())
+    manifest = _manifest("11" * 32)
+    manifest.pop("signature")
+    manifest["components"] = [
+        {
+            "id": 1,
+            "kind": "recovery",
+            "target_offset": 0x20000,
+            "size": 0x1800,
+            "file": "factory.bin",
+        },
+    ]
+    with pytest.raises(ValueError, match="non-zero 4 KiB multiple"):
+        build_system_update_bundle(tmp_path / "recovery.irisfw", manifest, tmp_path)
+
+
+def test_builder_requires_explicit_recovery_layout_precondition(tmp_path) -> None:
+    (tmp_path / "factory.bin").write_bytes(_application_image())
+    manifest = _manifest("00" * 32)
+    manifest.pop("signature")
+    manifest["components"] = [
+        {
+            "id": 1,
+            "kind": "recovery",
+            "target_offset": 0x20000,
+            "size": 0x2000,
+            "file": "factory.bin",
+        }
+    ]
+    with pytest.raises(ValueError, match="explicit target layout SHA-256"):
+        build_system_update_bundle(tmp_path / "recovery.irisfw", manifest, tmp_path)
+
+
+def test_builder_rejects_partition_table_in_recovery_bundle(tmp_path) -> None:
+    (tmp_path / "partition-table.bin").write_bytes(b"partition-table")
+    (tmp_path / "factory.bin").write_bytes(_application_image())
+    manifest = _manifest("11" * 32)
+    manifest.pop("signature")
+    manifest["components"] = [
+        {
+            "id": 1,
+            "kind": "partition_table",
+            "target_offset": 0x8000,
+            "file": "partition-table.bin",
+        },
+        {
+            "id": 2,
+            "kind": "recovery",
+            "target_offset": 0x20000,
+            "size": 0x2000,
+            "file": "factory.bin",
+        },
+    ]
+    with pytest.raises(ValueError, match="only component"):
+        build_system_update_bundle(tmp_path / "recovery.irisfw", manifest, tmp_path)
+
+
+def test_builder_rejects_mixed_recovery_transaction(tmp_path) -> None:
+    (tmp_path / "factory.bin").write_bytes(_application_image())
+    (tmp_path / "data.bin").write_bytes(b"data")
+    manifest = _manifest("11" * 32)
+    manifest.pop("signature")
+    manifest["components"] = [
+        {
+            "id": 1,
+            "kind": "recovery",
+            "target_offset": 0x20000,
+            "size": 0x2000,
+            "file": "factory.bin",
+        },
+        {
+            "id": 2,
+            "kind": "data",
+            "target_offset": 0x30000,
+            "file": "data.bin",
+        },
+    ]
+    with pytest.raises(ValueError, match="only component"):
+        build_system_update_bundle(tmp_path / "recovery.irisfw", manifest, tmp_path)
+
+
 def _bundle_for_session() -> SystemUpdateBundle:
     data = b"abc"
     component = SystemUpdateComponent(

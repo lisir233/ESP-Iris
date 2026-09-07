@@ -48,6 +48,7 @@ _KIND_NAMES = {
     "bootloader": SystemUpdateComponentKind.BOOTLOADER,
     "partition_table": SystemUpdateComponentKind.PARTITION_TABLE,
     "application": SystemUpdateComponentKind.APPLICATION,
+    "recovery": SystemUpdateComponentKind.RECOVERY,
     "data": SystemUpdateComponentKind.DATA,
 }
 
@@ -406,11 +407,14 @@ def load_system_update_bundle(
                     data=data,
                 )
             )
-            if kind is SystemUpdateComponentKind.APPLICATION:
+            if kind in {
+                SystemUpdateComponentKind.APPLICATION,
+                SystemUpdateComponentKind.RECOVERY,
+            }:
                 firmware = inspect_firmware_image(data)
                 if firmware.chip_id != chip_id:
                     raise ValueError(
-                        f"component {identifier} application chip ID does not match target"
+                        f"component {identifier} {kind.name.lower()} chip ID does not match target"
                     )
         unused = set(members) - filenames
         if unused:
@@ -437,6 +441,17 @@ def load_system_update_bundle(
         ]
         if partition_tables and partition_tables[0].size != PARTITION_TABLE_REGION_BYTES:
             raise ValueError("partition-table component must cover one 4 KiB sector")
+        recoveries = [
+            item
+            for item in components
+            if item.kind is SystemUpdateComponentKind.RECOVERY
+        ]
+        if recoveries and len(components) != 1:
+            raise ValueError("recovery must be the bundle's only component")
+        if recoveries and target_layout == "0" * 64:
+            raise ValueError(
+                "recovery bundle requires an explicit target layout SHA-256"
+            )
         bootloaders = [
             item
             for item in components
@@ -481,9 +496,11 @@ def build_system_update_bundle(
     """Create a deterministic signed or unsigned bundle from a template.
 
     Component ``size`` and ``sha256`` fields are replaced from their source
-    files before the canonical JSON manifest is signed. Partition-table and
-    bootloader inputs are padded with erased bytes to their complete protected
-    Flash ranges so component digests match post-reboot inventory.
+    files before the canonical JSON manifest is signed. Partition-table,
+    bootloader, and Recovery inputs are padded with erased bytes to their
+    complete protected Flash ranges so component digests match device
+    readback. A Recovery bundle carries only that component; its explicit
+    target-layout precondition is supplied separately in the manifest.
     """
 
     document = json.loads(json.dumps(manifest))
@@ -542,6 +559,17 @@ def build_system_update_bundle(
             if len(data) > protected_size:
                 raise ValueError("bootloader image exceeds its protected range")
             data = data.ljust(protected_size, b"\xff")
+        elif kind == "recovery":
+            protected_size = _bounded_uint(
+                item.get("size"), "recovery protected size", MAX_COMPONENT_BYTES
+            )
+            if protected_size == 0 or protected_size % 0x1000:
+                raise ValueError(
+                    "recovery protected size must be a non-zero 4 KiB multiple"
+                )
+            if len(data) > protected_size:
+                raise ValueError("recovery image exceeds its protected range")
+            data = data.ljust(protected_size, b"\xff")
         item["size"] = len(data)
         item["sha256"] = hashlib.sha256(data).hexdigest()
         if item.get("kind") == "partition_table":
@@ -549,6 +577,21 @@ def build_system_update_bundle(
         component_data[filename] = data
     if partition_table_sha256 is not None:
         document["target_layout_sha256"] = partition_table_sha256
+    recovery_items = [
+        item
+        for item in values
+        if isinstance(item, dict) and item.get("kind") == "recovery"
+    ]
+    if recovery_items and len(values) != 1:
+        raise ValueError("recovery must be the bundle's only component")
+    if recovery_items:
+        recovery_layout = _sha256_hex(
+            document.get("target_layout_sha256"), "target_layout_sha256"
+        )
+        if recovery_layout == "0" * 64:
+            raise ValueError(
+                "recovery bundle requires an explicit target layout SHA-256"
+            )
     manifest_bytes = json.dumps(
         document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")

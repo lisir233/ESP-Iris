@@ -87,6 +87,7 @@
               "bootloader",
               "partition_table",
               "application",
+              "recovery",
               "data"
             ]
           },

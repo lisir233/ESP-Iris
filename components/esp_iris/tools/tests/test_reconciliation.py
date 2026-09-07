@@ -196,3 +196,71 @@ def test_system_update_requires_matching_commit_receipt(tmp_path, receipt, resul
         store.close()
 
     asyncio.run(scenario())
+
+
+def test_recovery_self_update_reconciles_to_healthy_recovery(tmp_path):
+    import uuid
+
+    async def scenario():
+        store = GatewayStore(tmp_path)
+        store.create_operation({
+            "operation_id": "recovery-op",
+            "device_id": "a",
+            "actor_type": "agent",
+            "actor_name": "test",
+            "action": "firmware.system_update",
+            "params": {
+                "bundle": {
+                    "target_layout_sha256": "22" * 32,
+                    "components": [{"kind": "recovery", "sha256": "44" * 32}],
+                }
+            },
+            "status": "outcome_unknown",
+            "created_ns": 1,
+        })
+        store.update_operation(
+            "recovery-op",
+            progress_json={
+                "writer_boot_id": 1,
+                "target_recovery": {
+                    "sha256": "44" * 32,
+                    "elf_sha256": "55" * 32,
+                    "project_name": "factory",
+                },
+            },
+        )
+        store.append_event(
+            "device", {"event_name": "healthy", "boot_id": 2}, "a"
+        )
+
+        async def status(device_id):
+            assert device_id == "a"
+            return {
+                "device_id": "a",
+                "boot_id": 2,
+                "firmware_mode": "recovery",
+                "project_name": "factory",
+                "firmware_sha256": "55" * 32,
+            }
+
+        async def inventory(device_id):
+            assert device_id == "a"
+            return {
+                "last_operation_id": uuid.uuid5(
+                    uuid.NAMESPACE_URL, "recovery-op"
+                ).hex,
+                "last_result": 0,
+                "partition_table_sha256": "22" * 32,
+            }
+
+        record = await reconcile_operation(
+            store,
+            SimpleNamespace(status=status, system_update_inventory=inventory),
+            "recovery-op",
+            Actor("agent", "test"),
+        )
+        assert record["outcome"] == "observed_success"
+        assert record["evidence"]["target_recovery"]["project_name"] == "factory"
+        store.close()
+
+    asyncio.run(scenario())

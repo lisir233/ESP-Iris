@@ -398,6 +398,75 @@ def test_unsigned_system_update_closes_actual_inventory_loop(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_recovery_self_update_closes_recovery_identity_loop(tmp_path) -> None:
+    async def scenario() -> None:
+        components = tmp_path / "recovery-components"
+        components.mkdir()
+        firmware, _, _ = _firmware_bundle()
+        (components / "factory.bin").write_bytes(firmware)
+        manifest = {
+            "schema": SYSTEM_UPDATE_SCHEMA,
+            "minimum_recovery_version": "1.0.0",
+            "target": {"chip_id": 0x20, "flash_size": 16 * 1024 * 1024},
+            "target_layout_sha256": "11" * 32,
+            "components": [
+                {
+                    "id": 1,
+                    "kind": "recovery",
+                    "target_offset": 0x20000,
+                    "size": 0x2000,
+                    "file": "factory.bin",
+                },
+            ],
+        }
+        archive_path = build_system_update_bundle(
+            tmp_path / "recovery.irisfw", manifest, components
+        )
+        store = GatewayStore(tmp_path / "state")
+        service = GatewayService(store, instance_id="test", demo=True)
+        hub = DemoHub(service.on_device_event)
+        hub.get("demo-a1b2c3d4")["partition_table_sha256"] = "11" * 32
+        service.attach_hub(hub)
+        await hub.start()
+        client = TestClient(TestServer(create_app(service)))
+        await client.start_server()
+        try:
+            operation_id = str(uuid.uuid4())
+            accepted = await client.post(
+                "/v1/devices/demo-a1b2c3d4/system-update",
+                data=archive_path.read_bytes(),
+                headers={
+                    "Content-Type": "application/vnd.esp-iris.system-update+zip",
+                    "X-Operation-ID": operation_id,
+                    "X-Iris-Compatibility": json.dumps(
+                        {"chip_target": "esp32s31"}
+                    ),
+                },
+            )
+            assert accepted.status == 202
+            operation = None
+            for _ in range(200):
+                response = await client.get(f"/v1/operations/{operation_id}")
+                operation = await response.json()
+                if operation["status"] in {"succeeded", "failed"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert operation is not None
+            assert operation["status"] == "succeeded", operation
+            assert operation["result"]["recovery_validation"]["mode"] == (
+                "elf_sha256"
+            )
+            status = await hub.status("demo-a1b2c3d4")
+            assert status["firmware_mode"] == "recovery"
+            assert status["project_name"] == "esp-iris-template"
+        finally:
+            await client.close()
+            await hub.close()
+            store.close()
+
+    asyncio.run(scenario())
+
+
 def test_authenticated_gateway_mode_and_idempotent_operations(tmp_path) -> None:
     async def scenario() -> None:
         store = GatewayStore(tmp_path)

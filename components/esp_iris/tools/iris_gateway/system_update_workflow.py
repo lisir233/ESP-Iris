@@ -89,15 +89,38 @@ async def run_system_update(
         recovery_status, bundle.chip_id, required_compatibility, recovery=True
     )
     inventory_before = await hub.system_update_inventory(device_id)
+    target_application = next(
+        (
+            inspect_firmware_image(item.data).as_dict()
+            for item in bundle.components
+            if item.kind is SystemUpdateComponentKind.APPLICATION
+        ),
+        None,
+    )
+    target_recovery = next(
+        (
+            inspect_firmware_image(item.data).as_dict()
+            for item in bundle.components
+            if item.kind is SystemUpdateComponentKind.RECOVERY
+        ),
+        None,
+    )
+    if (
+        target_recovery is not None
+        and inventory_before.get("partition_table_sha256")
+        != bundle.target_layout_sha256
+    ):
+        raise RuntimeError(
+            "Recovery self-update source layout does not match the bundle"
+        )
     await operations.progress(
         operation_id,
         stage="validating_plan",
         progress_permille=50,
         source_inventory=inventory_before,
         writer_boot_id=writer_boot,
-        target_application=next((inspect_firmware_image(item.data).as_dict()
-                                 for item in bundle.components
-                                 if item.kind is SystemUpdateComponentKind.APPLICATION), None),
+        target_application=target_application,
+        target_recovery=target_recovery,
     )
     try:
         wire_operation_id = uuid.UUID(operation_id).bytes
@@ -199,9 +222,15 @@ async def run_system_update(
     )
     application_validation: dict[str, Any] | None = None
     if application is not None:
-        metadata = inspect_firmware_image(application.data).as_dict()
         application_validation = validate_identity(
-            status, metadata, validation_mode
+            status, target_application or {}, validation_mode
+        )
+    recovery_validation: dict[str, Any] | None = None
+    if target_recovery is not None:
+        if status.get("firmware_mode") != "recovery":
+            raise RuntimeError("updated Recovery did not boot in recovery mode")
+        recovery_validation = validate_identity(
+            status, target_recovery, validation_mode
         )
     return {
         **result,
@@ -213,6 +242,7 @@ async def run_system_update(
         "source_inventory": inventory_before,
         "target_inventory": inventory_after,
         "application_validation": application_validation,
+        "recovery_validation": recovery_validation,
         "preserved_coredump": preserved_coredump,
     }
 

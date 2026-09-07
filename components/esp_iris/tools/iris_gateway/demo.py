@@ -689,13 +689,29 @@ class DemoHub:
                 device["project_name"] = firmware.project_name
                 device["app_version"] = firmware.version
                 device["firmware_sha256"] = firmware.elf_sha256
+            if component.kind is SystemUpdateComponentKind.RECOVERY:
+                firmware = inspect_firmware_image(component.data)
+                device["project_name"] = firmware.project_name
+                device["app_version"] = firmware.version
+                device["firmware_sha256"] = firmware.elf_sha256
             if component.kind is SystemUpdateComponentKind.BOOTLOADER:
                 device["bootloader_sha256"] = component.sha256.hex()
-        device["partition_table_sha256"] = bundle.target_layout_sha256
+        if any(
+            component.kind is SystemUpdateComponentKind.PARTITION_TABLE
+            for component in bundle.components
+        ):
+            device["partition_table_sha256"] = bundle.target_layout_sha256
         device["last_system_update_operation_id"] = operation_id.hex()
         device["boot_id"] += 1
         device["session_id"] += 1
-        device["firmware_mode"] = "normal"
+        device["firmware_mode"] = (
+            "recovery"
+            if any(
+                component.kind is SystemUpdateComponentKind.RECOVERY
+                for component in bundle.components
+            )
+            else "normal"
+        )
         await self._emit(
             {
                 "kind": "connection",

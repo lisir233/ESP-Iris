@@ -500,7 +500,7 @@ The manifest and optional signature are bounded by Kconfig. Manifest v1 does
 not contain a product-specific source-layout allowlist: the product backend
 must validate source-to-target compatibility before accepting any destructive
 component write. The complete target partition-table hash remains mandatory
-for post-reboot inventory validation. A zero
+as an explicit layout precondition and for post-reboot inventory validation. A zero
 `signature_size` represents an unsigned update. ESP-Iris always verifies the
 manifest SHA-256; the product backend decides whether a signature is required
 and enforces the product Flash policy.
@@ -518,6 +518,13 @@ Defined kinds are bootloader `1`, partition table `2`, application `3`,
 recovery `4`, and product data `5`. A backend may reject any kind, including
 recovery self-update. COMPONENT_BEGIN_RESPONSE (`0x04`) returns
 `operation_id[16], component_id:u8, kind:u8, chunk_max:u16, total_size:u32`.
+The reference bundle builder requires a Recovery component to declare its
+complete sector-aligned protected size and pads the input image with erased
+bytes to that size before hashing. Recovery is the bundle's only component;
+the partition table is not transported or committed. The mandatory
+`target_layout_sha256` field instead states the exact source-layout
+precondition. A Recovery self-update cannot be mixed with normal application,
+bootloader, partition-table, or data updates.
 
 DATA (`0x05`) is `operation_id[16], component_id:u8, reserved:u8,
 reserved:u16, offset:u32, bytes[]`. Offsets are strictly sequential. Each

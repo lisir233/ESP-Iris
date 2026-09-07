@@ -51,6 +51,14 @@ def _target_components_match(params: dict[str, Any], progress: dict[str, Any],
                     or str(status.get("firmware_sha256", "")).lower()
                     != str(expected["elf_sha256"]).lower()):
                 return False
+        elif kind == "recovery":
+            expected = progress.get("target_recovery") or {}
+            if (not expected.get("elf_sha256") or not component.get("sha256")
+                    or expected.get("sha256") != component["sha256"]
+                    or status.get("project_name") != expected.get("project_name")
+                    or str(status.get("firmware_sha256", "")).lower()
+                    != str(expected["elf_sha256"]).lower()):
+                return False
     return True
 
 
@@ -109,14 +117,22 @@ async def reconcile_operation(
                 except ValueError:
                     wire_id = uuid.uuid5(uuid.NAMESPACE_URL, operation_id).hex
                 receipt_matches = inventory.get("last_operation_id") == wire_id
+                components = params.get("bundle", {}).get("components", [])
+                expected_mode = (
+                    "recovery"
+                    if any(item.get("kind") == "recovery" for item in components)
+                    else "normal"
+                )
                 if receipt_matches and inventory.get("last_result") not in (None, 0):
                     record.update(outcome="observed_failure", reason="matching device receipt reports failure")
                 elif (receipt_matches and inventory.get("last_result") == 0 and healthy
-                      and status.get("firmware_mode") == "normal" and after.get("firmware_mode") == "normal"
+                      and status.get("firmware_mode") == expected_mode
+                      and after.get("firmware_mode") == expected_mode
                       and writer_boot is not None and boot != writer_boot
                       and inventory.get("partition_table_sha256") == params.get("bundle", {}).get("target_layout_sha256")
                       and _target_components_match(params, progress, after, inventory)):
                     record["evidence"]["target_application"] = progress.get("target_application")
+                    record["evidence"]["target_recovery"] = progress.get("target_recovery")
                     record.update(outcome="observed_success", reason="matching commit receipt, layout and healthy new boot")
             else:
                 record["reason"] = "action has no durable proof contract; live observation retained"
