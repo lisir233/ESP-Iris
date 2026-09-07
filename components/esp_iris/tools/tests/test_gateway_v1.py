@@ -936,6 +936,19 @@ def test_local_auth_cli_is_opt_in() -> None:
     )
     assert not hasattr(rpc_raw, "params")
     assert rpc_raw.payload == "{}"
+    rpc_raw_stdin = parser.parse_args(
+        [
+            "ctl",
+            "--json",
+            "rpc-raw",
+            "device-a",
+            "0x1202",
+            "1",
+            "--payload-base64-stdin",
+        ]
+    )
+    assert rpc_raw_stdin.payload_base64_stdin is True
+    assert rpc_raw_stdin.payload == ""
     pointer_input = parser.parse_args(
         [
             "ctl",

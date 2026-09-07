@@ -547,9 +547,12 @@ async def _ctl(args: argparse.Namespace) -> int:
                     body = {
                         "service_id": int(args.service_id, 0),
                         "method_id": int(args.method_id, 0),
-                        "payload_text": args.payload,
                         "deadline_ms": args.deadline_ms,
                     }
+                    if args.payload_base64_stdin:
+                        body["payload_base64"] = sys.stdin.read().strip()
+                    else:
+                        body["payload_text"] = args.payload
                 async with session.post(url, json=body, headers={"X-Operation-ID": str(uuid.uuid4())}, ssl=ssl_value) as response:
                     _output(await _response_json(response), args.json)
             elif command == "restart":
@@ -876,6 +879,11 @@ def build_parser() -> argparse.ArgumentParser:
     raw.add_argument("service_id")
     raw.add_argument("method_id")
     raw.add_argument("--payload", default="")
+    raw.add_argument(
+        "--payload-base64-stdin",
+        action="store_true",
+        help="read a base64 RPC payload from stdin instead of argv",
+    )
     raw.add_argument("--deadline-ms", type=int, default=1000)
     console = commands.add_parser("console")
     console.add_argument("device")
