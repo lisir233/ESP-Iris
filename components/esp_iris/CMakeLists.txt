@@ -21,6 +21,7 @@ if(CONFIG_ESP_IRIS_ENABLE)
         "src/esp_iris.c"
         "src/esp_iris_codec.c"
         "src/esp_iris_crash.c"
+        "src/esp_iris_crash_recovery.c"
         "src/esp_iris_identity.c"
         "src/esp_iris_log.c"
         "src/esp_iris_mdns.c"

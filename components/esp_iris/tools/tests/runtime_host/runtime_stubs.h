@@ -11,7 +11,7 @@ void vTaskDelay(unsigned n) { }
 const esp_app_desc_t *esp_app_get_description(void) { static esp_app_desc_t d; return &d; }
 size_t heap_caps_get_free_size(unsigned c) { return 10000; }
 size_t heap_caps_get_minimum_free_size(unsigned c) { return 10000; }
-int esp_reset_reason(void) { return 0; }
+esp_reset_reason_t esp_reset_reason(void) { return ESP_RST_UNKNOWN; }
 void esp_restart(void) { assert(0); }
 esp_err_t iris_identity_load_or_create(iris_runtime_t *r) { return ESP_OK; }
 esp_err_t iris_log_vfs_init(iris_runtime_t *r) { return ESP_OK; }
@@ -20,6 +20,18 @@ esp_err_t iris_log_redirect_stdio(void) { return ESP_OK; }
 esp_err_t iris_log_restore_stdio(void) { return ESP_OK; }
 bool iris_log_pop(iris_runtime_t *r, size_t n, iris_log_record_t *o) { return false; }
 void iris_crash_probe(iris_runtime_t *r) { }
+esp_err_t iris_crash_recovery_probe(iris_runtime_t *r) {
+    r->crash_loop_initialized = true; r->crash_limit = 3; return ESP_OK;
+}
+esp_err_t iris_crash_recovery_mark_planned(iris_runtime_t *r) { return ESP_OK; }
+esp_err_t iris_crash_recovery_mark_healthy(iris_runtime_t *r) {
+    r->crash_count = 0; r->crash_loop_triggered = false;
+    r->crash_recovery_pending = false; return ESP_OK;
+}
+esp_err_t iris_crash_recovery_reset(iris_runtime_t *r) {
+    return iris_crash_recovery_mark_healthy(r);
+}
+void iris_crash_recovery_poll(iris_runtime_t *r, int64_t now) { }
 esp_err_t iris_crash_build_metadata(iris_runtime_t *r, uint8_t *o, size_t n, size_t *s) { return ESP_ERR_NOT_SUPPORTED; }
 esp_err_t iris_crash_read(iris_runtime_t *r, size_t a, size_t n, uint8_t *o, size_t *s) { return ESP_ERR_NOT_SUPPORTED; }
 esp_err_t iris_files_init(iris_runtime_t *r) { return ESP_OK; }

@@ -61,6 +61,8 @@ static bool reset_is_crash(esp_reset_reason_t reason)
     case ESP_RST_TASK_WDT:
     case ESP_RST_WDT:
     case ESP_RST_BROWNOUT:
+    case ESP_RST_PWR_GLITCH:
+    case ESP_RST_CPU_LOCKUP:
         return true;
     default:
         return false;
@@ -165,7 +167,29 @@ esp_err_t iris_crash_build_metadata(iris_runtime_t *runtime, uint8_t *out,
             !crash_tlv_put(&writer, ESP_IRIS_TLV_PANIC_REASON,
                            runtime->panic_reason,
                            strnlen(runtime->panic_reason,
-                                   sizeof(runtime->panic_reason)))) {
+                                   sizeof(runtime->panic_reason))) ||
+            !crash_tlv_put_u32(&writer, ESP_IRIS_TLV_CRASH_COUNT,
+                               runtime->crash_count) ||
+            !crash_tlv_put_u32(&writer, ESP_IRIS_TLV_CRASH_LIMIT,
+                               runtime->crash_limit) ||
+            !crash_tlv_put_u8(&writer,
+                              ESP_IRIS_TLV_CRASH_LOOP_TRIGGERED,
+                              runtime->crash_loop_triggered ? 1U : 0U) ||
+            !crash_tlv_put_u8(&writer,
+                              ESP_IRIS_TLV_CRASH_RECOVERY_PENDING,
+                              runtime->crash_recovery_pending ? 1U : 0U) ||
+            !crash_tlv_put_u32(
+                &writer, ESP_IRIS_TLV_CRASH_ORIGIN_RESET_REASON,
+                runtime->crash_origin_reset_reason) ||
+            !crash_tlv_put_u32(&writer,
+                               ESP_IRIS_TLV_CRASH_FAILED_APP_ADDRESS,
+                               runtime->crash_failed_app_address) ||
+            !crash_tlv_put(&writer,
+                           ESP_IRIS_TLV_CRASH_FAILED_FIRMWARE_SHA256,
+                           runtime->crash_failed_firmware_sha256,
+                           sizeof(runtime->crash_failed_firmware_sha256)) ||
+            !crash_tlv_put_u32(&writer, ESP_IRIS_TLV_CRASH_STATE_ERROR,
+                               (uint32_t)runtime->crash_state_error)) {
         return ESP_ERR_INVALID_SIZE;
     }
     *out_size = writer.length;

@@ -530,6 +530,13 @@ def test_event_time_fields_crash_metadata_and_chunk_download() -> None:
                 (TlvTag.CORE_DUMP_ELF_SHA256, b"ab" * 32),
                 (TlvTag.CORE_DUMP_ELF_SHA256_COMPLETE, b"\x01"),
                 (TlvTag.PANIC_REASON, b"Load access fault"),
+                (TlvTag.CRASH_COUNT, struct.pack("<I", 3)),
+                (TlvTag.CRASH_LIMIT, struct.pack("<I", 3)),
+                (TlvTag.CRASH_LOOP_TRIGGERED, b"\x01"),
+                (TlvTag.CRASH_RECOVERY_PENDING, b"\x01"),
+                (TlvTag.CRASH_ORIGIN_RESET_REASON, struct.pack("<I", 9)),
+                (TlvTag.CRASH_FAILED_APP_ADDRESS, struct.pack("<I", 0x120000)),
+                (TlvTag.CRASH_FAILED_FIRMWARE_SHA256, bytes.fromhex("ab" * 32)),
             ]
         )
         await link.incoming.put(
@@ -550,6 +557,13 @@ def test_event_time_fields_crash_metadata_and_chunk_download() -> None:
         assert report["decode_eligible"] is True
         assert report["core_dump_chunk_max"] == 512
         assert report["panic_reason"] == "Load access fault"
+        assert report["crash_count"] == 3
+        assert report["crash_limit"] == 3
+        assert report["crash_loop_triggered"] is True
+        assert report["crash_recovery_pending"] is True
+        assert report["crash_origin_reset_reason"] == 9
+        assert report["crash_failed_app_address"] == 0x120000
+        assert report["crash_failed_firmware_sha256"] == "ab" * 32
 
         chunk_task = asyncio.create_task(session.read_core_dump_chunk(0, 1024))
         for _ in range(20):

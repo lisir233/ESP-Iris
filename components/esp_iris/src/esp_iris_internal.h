@@ -80,15 +80,19 @@ typedef struct iris_runtime {
     bool running;
     bool identity_ready;
     bool crash_initialized;
+    bool crash_loop_initialized;
     bool vfs_registered;
     bool stdio_redirected;
     bool link_connected;
     bool hello_acked;
     bool healthy;
     bool previous_boot_crash;
+    bool previous_boot_planned;
     bool core_dump_present;
     bool core_dump_valid;
     bool core_dump_checked;
+    bool crash_loop_triggered;
+    bool crash_recovery_pending;
     esp_iris_lifecycle_t lifecycle;
     iris_session_state_t session_state;
 
@@ -100,6 +104,7 @@ typedef struct iris_runtime {
     bool rx_sequence_seen[ESP_IRIS_CHANNEL_COUNT];
     uint32_t log_credit;
     int64_t next_hello_us;
+    int64_t crash_stable_deadline_us;
     uint32_t pending_events;
 
     TaskHandle_t task;
@@ -139,6 +144,12 @@ typedef struct iris_runtime {
     char core_dump_elf_sha256[65];
     uint8_t core_dump_elf_sha256_length;
     char panic_reason[128];
+    uint32_t crash_count;
+    uint32_t crash_limit;
+    uint32_t crash_origin_reset_reason;
+    uint32_t crash_failed_app_address;
+    uint8_t crash_failed_firmware_sha256[32];
+    esp_err_t crash_state_error;
 } iris_runtime_t;
 
 extern iris_runtime_t g_iris;
@@ -154,6 +165,11 @@ bool iris_log_pop(iris_runtime_t *runtime, size_t payload_budget,
                   iris_log_record_t *out_record);
 
 void iris_crash_probe(iris_runtime_t *runtime);
+esp_err_t iris_crash_recovery_probe(iris_runtime_t *runtime);
+esp_err_t iris_crash_recovery_mark_planned(iris_runtime_t *runtime);
+esp_err_t iris_crash_recovery_mark_healthy(iris_runtime_t *runtime);
+esp_err_t iris_crash_recovery_reset(iris_runtime_t *runtime);
+void iris_crash_recovery_poll(iris_runtime_t *runtime, int64_t now_us);
 esp_err_t iris_crash_build_metadata(iris_runtime_t *runtime, uint8_t *out,
                                     size_t capacity, size_t *out_size);
 esp_err_t iris_crash_read(iris_runtime_t *runtime, size_t offset,

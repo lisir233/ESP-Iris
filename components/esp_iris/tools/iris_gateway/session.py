@@ -481,6 +481,23 @@ class DeviceSession:
                 "host_receive_wall_ns": time.time_ns(),
                 "clock_uncertainty_us": self.clock_uncertainty_us,
                 "reset_reason": tlv_u32(fields, TlvTag.RESET_REASON),
+                "crash_count": tlv_u32(fields, TlvTag.CRASH_COUNT),
+                "crash_limit": tlv_u32(fields, TlvTag.CRASH_LIMIT),
+                "crash_recovery_pending": bool(
+                    tlv_u8(fields, TlvTag.CRASH_RECOVERY_PENDING)
+                ),
+                "crash_origin_reset_reason": tlv_u32(
+                    fields, TlvTag.CRASH_ORIGIN_RESET_REASON
+                ),
+                "crash_failed_app_address": tlv_u32(
+                    fields, TlvTag.CRASH_FAILED_APP_ADDRESS
+                ),
+                "crash_failed_firmware_sha256": fields.get(
+                    int(TlvTag.CRASH_FAILED_FIRMWARE_SHA256), b""
+                ).hex(),
+                "crash_state_error": tlv_u32(
+                    fields, TlvTag.CRASH_STATE_ERROR
+                ),
                 "sequence": frame.sequence,
                 "event_id": (
                     f"{self.info.device_id if self.info else 'unknown'}:"
@@ -644,6 +661,24 @@ class DeviceSession:
                 tlv_u32(fields, TlvTag.STATIC_INTERNAL_BYTES)
                 + tlv_u32(fields, TlvTag.INTERNAL_HEAP_USED)
             ),
+            "crash_count": tlv_u32(fields, TlvTag.CRASH_COUNT),
+            "crash_limit": tlv_u32(fields, TlvTag.CRASH_LIMIT),
+            "crash_loop_triggered": bool(
+                tlv_u8(fields, TlvTag.CRASH_LOOP_TRIGGERED)
+            ),
+            "crash_recovery_pending": bool(
+                tlv_u8(fields, TlvTag.CRASH_RECOVERY_PENDING)
+            ),
+            "crash_origin_reset_reason": tlv_u32(
+                fields, TlvTag.CRASH_ORIGIN_RESET_REASON
+            ),
+            "crash_failed_app_address": tlv_u32(
+                fields, TlvTag.CRASH_FAILED_APP_ADDRESS
+            ),
+            "crash_failed_firmware_sha256": fields.get(
+                int(TlvTag.CRASH_FAILED_FIRMWARE_SHA256), b""
+            ).hex(),
+            "crash_state_error": tlv_u32(fields, TlvTag.CRASH_STATE_ERROR),
             "clock_offset_us": self.clock_offset_us,
             "clock_uncertainty_us": self.clock_uncertainty_us,
         }
@@ -1158,6 +1193,24 @@ class DeviceSession:
             "previous_boot_crash": bool(
                 tlv_u8(fields, TlvTag.PREVIOUS_BOOT_CRASH)
             ),
+            "crash_count": tlv_u32(fields, TlvTag.CRASH_COUNT),
+            "crash_limit": tlv_u32(fields, TlvTag.CRASH_LIMIT),
+            "crash_loop_triggered": bool(
+                tlv_u8(fields, TlvTag.CRASH_LOOP_TRIGGERED)
+            ),
+            "crash_recovery_pending": bool(
+                tlv_u8(fields, TlvTag.CRASH_RECOVERY_PENDING)
+            ),
+            "crash_origin_reset_reason": tlv_u32(
+                fields, TlvTag.CRASH_ORIGIN_RESET_REASON
+            ),
+            "crash_failed_app_address": tlv_u32(
+                fields, TlvTag.CRASH_FAILED_APP_ADDRESS
+            ),
+            "crash_failed_firmware_sha256": fields.get(
+                int(TlvTag.CRASH_FAILED_FIRMWARE_SHA256), b""
+            ).hex(),
+            "crash_state_error": tlv_u32(fields, TlvTag.CRASH_STATE_ERROR),
             "core_dump_present": bool(tlv_u8(fields, TlvTag.CORE_DUMP_PRESENT)),
             "core_dump_valid": bool(tlv_u8(fields, TlvTag.CORE_DUMP_VALID)),
             "core_dump_size": tlv_u32(fields, TlvTag.CORE_DUMP_SIZE),

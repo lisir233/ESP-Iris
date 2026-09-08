@@ -4,6 +4,10 @@ All notable ESP-Iris component changes are documented in this file.
 
 ## Unreleased
 
+- Move consecutive-crash attribution into Iris: persist a versioned image
+  record, distinguish immediate reset reason from a latched crash loop, clear
+  after stable runtime/health, and enter factory Recovery at the configurable
+  threshold without overwriting the original Core Dump.
 - Allow product backends and Gateway deployments to explicitly opt into
   unsigned System Update bundles while retaining manifest/component SHA-256,
   bounded streaming, inventory validation, and product-owned Flash policy.

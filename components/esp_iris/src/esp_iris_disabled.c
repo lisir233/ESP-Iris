@@ -37,6 +37,16 @@ esp_err_t esp_iris_ota_get_status(esp_iris_ota_status_t *out_status)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t esp_iris_boot_probe(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_iris_crash_loop_reset(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t esp_iris_mark_healthy(void)
 {
     return ESP_ERR_NOT_SUPPORTED;

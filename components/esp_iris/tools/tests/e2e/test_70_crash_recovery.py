@@ -118,10 +118,19 @@ def test_real_crash_returns_to_factory_preserves_coredump_retry_and_resume(
         report = _wait_crash_report(
             api,
             device_id,
-            lambda value: value.get("previous_boot_crash") is True
+            lambda value: value.get("crash_recovery_pending") is True
             and value.get("core_dump_valid") is True,
         )
-        assert report["previous_boot_crash"] is True
+        # Recovery is reached by a second, planned software reset. Preserve
+        # the immediate-reset meaning of previous_boot_crash and use the
+        # latched Iris record for the original failure.
+        assert report["previous_boot_crash"] is False
+        assert report["crash_loop_triggered"] is True
+        assert report["crash_recovery_pending"] is True
+        assert report["crash_count"] == 1
+        assert report["crash_limit"] == 1
+        assert report["crash_origin_reset_reason"] != 0
+        assert report["crash_failed_firmware_sha256"] == candidate_elf_sha
         assert report["core_dump_present"] is True
         assert report["core_dump_valid"] is True
         assert report["core_dump_size"] > 0
@@ -174,7 +183,7 @@ def test_real_crash_returns_to_factory_preserves_coredump_retry_and_resume(
             event.get("data", {}).get("event_name", event.get("event_name"))
             for event in history["events"]
         }
-        assert "previous_boot_crash" in names
+        assert "crash_loop_detected" in names
         assert "core_dump_available" in names
         assert "planned_restart" in names
 

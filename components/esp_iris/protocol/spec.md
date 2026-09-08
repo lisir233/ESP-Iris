@@ -78,7 +78,8 @@ only when both peers recognize `CAP_FILE` (capability bit 13).
 `CAP_OTA_PROJECT_NAME_MATCH`
 (capability bit 14) advertises that the running firmware requires an OTA
 image's project name to match its own. An absent bit means that cross-project
-updates are allowed. Unknown types on a known channel produce a CONTROL ERROR
+updates are allowed. `CAP_CRASH_LOOP` (capability bit 18) advertises retained
+reset attribution and consecutive-crash fields. Unknown types on a known channel produce a CONTROL ERROR
 when a response is possible. A future protocol version must use capability
 negotiation rather than silently reinterpreting an existing type.
 
@@ -104,10 +105,11 @@ Consumers compare `boot_id` to detect a real boot and `session_id` to detect a
 new physical link session.
 
 After HELLO_ACK, replay order is BOOT, LINK_READY, optional
-PREVIOUS_BOOT_CRASH, optional CORE_DUMP_AVAILABLE and optional HEALTHY.
+PREVIOUS_BOOT_CRASH, optional CORE_DUMP_AVAILABLE, optional
+CRASH_LOOP_DETECTED and optional HEALTHY.
 `esp_iris_mark_healthy()` updates replayable lifecycle state. A planned restart
-event records local intent; products with crash-loop recovery override
-`esp_iris_platform_mark_planned_restart()` to persist that intent. Event type
+event records local intent in Iris NVS. Products may still override the
+platform hook for additional product metadata. Event type
 `0x02` is reserved and must not be reinterpreted.
 
 Implemented control types:
@@ -208,6 +210,24 @@ The PC permits evidence download even when the embedded ELF SHA is incomplete,
 but sets `decode_eligible=true` only when a complete 64-character SHA matches
 the running firmware identity. Decoding against a nonmatching ELF is outside
 the protocol contract.
+
+When `CAP_CRASH_LOOP` is present, metadata and STATUS also expose the retained
+`CRASH_COUNT`, configured `CRASH_LIMIT`, threshold/pending flags, original
+failure reset reason, failed application address and failed firmware SHA-256.
+These fields survive the planned software restart into Recovery, while
+`PREVIOUS_BOOT_CRASH` deliberately continues to describe only the immediate
+reset reason. A Recovery boot can therefore report
+`previous_boot_crash=false` together with `crash_recovery_pending=true` and the
+original panic or watchdog reason.
+
+Iris writes a single versioned `crash_loop` blob in namespace `esp_iris` at
+boot. A panic, watchdog or CPU-lockup reset is attributed to the image address
+and SHA recorded by the previous boot. Brownout and power-glitch resets are
+excluded unless explicitly configured. A normal image clears the count after
+the stable interval or `esp_iris_mark_healthy()`; Recovery does not implicitly
+clear another image's failure record. At the threshold a normal image selects
+Recovery with `esp_iris_platform_select_recovery_target()` (factory by default),
+commits the retained evidence, and performs a planned software restart.
 
 ## File service
 

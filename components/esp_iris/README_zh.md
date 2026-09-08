@@ -98,11 +98,18 @@ Component config > ESP-Iris device link > Device transports
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_iris_boot_probe());
+    /* 在早期复位归因探测之后再初始化产品服务。 */
     ESP_ERROR_CHECK(esp_iris_start());
 }
 ```
 
-`esp_iris_start()` 是幂等的。`esp_iris_stop()` 会释放 worker、传输、VFS 和
+这个早期幂等探测会先记录正在运行的镜像，从而覆盖后续产品初始化期间的崩溃。
+`esp_iris_start()` 会兜底调用它，但无法覆盖到达 `esp_iris_start()` 之前发生的
+崩溃。panic、watchdog 和 CPU lockup 默认计入连续崩溃；brownout 和电源毛刺
+默认不计，除非显式配置。普通应用稳定运行到设定时间，或调用
+`esp_iris_mark_healthy()` 后清零计数。`esp_iris_start()` 是幂等的。
+`esp_iris_stop()` 会释放 worker、传输、VFS 和
 stdio 所有权，之后可以再次启动。
 
 ### 4. 构建固件

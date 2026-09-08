@@ -108,11 +108,19 @@ See the transport-specific notes in the [example index](examples/README.md).
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_iris_boot_probe());
+    /* Initialize product services after the early reset-attribution probe. */
     ESP_ERROR_CHECK(esp_iris_start());
 }
 ```
 
-`esp_iris_start()` is idempotent. `esp_iris_stop()` releases the worker,
+The early, idempotent probe records the running image before later product
+initialization can fail. `esp_iris_start()` invokes it as a fallback, but that
+cannot cover code which crashes before `esp_iris_start()` is reached. Panic,
+watchdog and CPU-lockup resets count toward the default crash-loop threshold;
+brownout and power-glitch resets do not unless configured. A normal image that
+stays alive for the stable interval, or calls `esp_iris_mark_healthy()`, clears
+the count. `esp_iris_start()` is idempotent. `esp_iris_stop()` releases the worker,
 transport, VFS, and stdio ownership so the component can be started again.
 
 ### 4. Build the firmware

@@ -44,13 +44,65 @@ config ESP_IRIS_HEALTH_TIMEOUT_MS
 endmenu
 
 config ESP_IRIS_NVS_PARTITION_NAME
-    string "NVS partition used for device identity and pairing state"
+    string "NVS partition used for Iris retained state"
     default "nvs"
     help
-        Label of the NVS partition that stores the stable Device ID and TCP
-        pairing token. The partition table must contain an NVS partition with
-        this label. Keep the default for shared NVS, or select a product-owned
-        system metadata partition to isolate identity from application data.
+        Label of the NVS partition that stores the stable Device ID, TCP
+        pairing token, and crash-loop record. The partition table must contain
+        an NVS partition with this label. Keep the default for shared NVS, or
+        select a product-owned system metadata partition to isolate Iris state
+        from application data.
+
+menu "Crash-loop recovery"
+
+config ESP_IRIS_CRASH_LOOP_TRACKING
+    bool "Track consecutive unplanned crash resets"
+    default y
+    help
+        Persist the identity and reset result of the last started image in the
+        Iris NVS namespace. On the next boot, panic, watchdog and CPU-lockup
+        resets are attributed to that image. Planned software restarts are not
+        counted. The state is stored as one versioned NVS blob and survives
+        application updates and ordinary resets.
+
+config ESP_IRIS_CRASH_LOOP_RECOVERY
+    bool "Enter recovery after repeated crashes"
+    depends on ESP_IRIS_CRASH_LOOP_TRACKING
+    depends on ESP_IRIS_FIRMWARE_ROLE = 1
+    default y
+    help
+        When the configured limit is reached, select the recovery partition
+        through esp_iris_platform_select_recovery_target() and perform a
+        planned software restart. The default platform hook selects the
+        factory application partition. Products with another retained
+        recovery layout may override the hook.
+
+config ESP_IRIS_CRASH_LOOP_LIMIT
+    int "Consecutive crash limit"
+    depends on ESP_IRIS_CRASH_LOOP_TRACKING
+    range 1 100
+    default 3
+
+config ESP_IRIS_CRASH_LOOP_STABLE_MS
+    int "Stable runtime before clearing the counter (ms)"
+    depends on ESP_IRIS_CRASH_LOOP_TRACKING
+    range 1000 600000
+    default 30000
+    help
+        A normal application that remains alive for this interval clears its
+        own consecutive crash count. Products may clear it earlier by calling
+        esp_iris_mark_healthy(). Recovery firmware never clears the failed
+        normal application's record merely by remaining alive.
+
+config ESP_IRIS_CRASH_LOOP_COUNT_POWER_FAULTS
+    bool "Count brownout and power-glitch resets as crashes"
+    depends on ESP_IRIS_CRASH_LOOP_TRACKING
+    default n
+    help
+        Disabled by default because an unstable supply can otherwise cause
+        repeated NVS writes and incorrectly quarantine healthy firmware.
+
+endmenu
 
 menu "Device transports"
 

@@ -32,8 +32,11 @@ typedef struct {
     bool link_connected;
     bool session_ready;
     bool previous_boot_crash;
+    bool previous_boot_planned;
     bool core_dump_present;
     bool core_dump_valid;
+    bool crash_loop_triggered;
+    bool crash_recovery_pending;
     esp_iris_lifecycle_t lifecycle;
     esp_iris_transport_kind_t transport;
     uint8_t device_id[16];
@@ -51,6 +54,12 @@ typedef struct {
     uint32_t static_internal_bytes;
     uint32_t core_dump_size;
     uint32_t reset_reason;
+    uint32_t crash_count;
+    uint32_t crash_limit;
+    uint32_t crash_origin_reset_reason;
+    uint32_t crash_failed_app_address;
+    uint8_t crash_failed_firmware_sha256[32];
+    esp_err_t crash_state_error;
 } esp_iris_status_t;
 
 typedef struct {
@@ -149,6 +158,18 @@ bool esp_iris_is_started(void);
 esp_err_t esp_iris_get_status(esp_iris_status_t *out_status);
 esp_err_t esp_iris_ota_get_status(esp_iris_ota_status_t *out_status);
 
+/* Probe reset attribution as early as possible in app_main(). esp_iris_start()
+ * calls this automatically as a fallback, but an explicit early call covers
+ * crashes in product initialization that happen before Iris is started. The
+ * call is idempotent and may restart directly into recovery at the configured
+ * crash-loop threshold. */
+esp_err_t esp_iris_boot_probe(void);
+
+/* Clear the retained crash-loop record explicitly. Normal applications also
+ * clear their own count after the configured stable interval or when marked
+ * healthy. Recovery firmware does not clear a failed application's record. */
+esp_err_t esp_iris_crash_loop_reset(void);
+
 /* Optional product lifecycle marker. State is replayed to a newly connected
  * PC session, so callers do not need to wait for a link. */
 esp_err_t esp_iris_mark_planned_restart(void);
@@ -160,6 +181,7 @@ esp_err_t esp_iris_mark_planned_restart(void);
 esp_err_t esp_iris_mark_healthy(void);
 esp_err_t esp_iris_platform_mark_healthy(void);
 esp_err_t esp_iris_platform_mark_planned_restart(void);
+esp_err_t esp_iris_platform_select_recovery_target(uint32_t *target_address);
 esp_err_t esp_iris_platform_select_ota_target(uint32_t default_address,
                                                uint32_t *target_address);
 esp_err_t esp_iris_platform_prepare_ota(uint32_t running_address,

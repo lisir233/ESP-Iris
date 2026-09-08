@@ -1793,6 +1793,12 @@ static bool handle_ota(iris_runtime_t *runtime,
             err = ESP_ERR_INVALID_STATE;
         }
         if (err == ESP_OK) {
+            /* A fully verified replacement image starts a new crash-history
+             * scope. Do this at the final commit boundary, not OTA_BEGIN, so
+             * a failed or cancelled transfer preserves existing evidence. */
+            err = esp_iris_crash_loop_reset();
+        }
+        if (err == ESP_OK) {
             err = esp_ota_set_boot_partition(ota->partition);
         }
         esp_iris_job_handle_t job = ota->job;
