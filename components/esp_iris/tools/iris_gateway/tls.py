@@ -8,6 +8,9 @@ import pathlib
 import socket
 import ssl
 
+_DEFAULT_COMMON_NAME = "ESP-Iris Local Gateway"
+_MAX_COMMON_NAME_BYTES = 64
+
 
 def ensure_certificate(
     state_dir: pathlib.Path,
@@ -68,10 +71,13 @@ def _generate(cert_path: pathlib.Path, key_path: pathlib.Path) -> None:
         pass
     finally:
         with_context.close()
+    common_name = hostname
+    if not 1 <= len(common_name.encode("utf-8")) <= _MAX_COMMON_NAME_BYTES:
+        common_name = _DEFAULT_COMMON_NAME
     subject = issuer = x509.Name(
         [
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "ESP-Iris Local Gateway"),
-            x509.NameAttribute(NameOID.COMMON_NAME, hostname),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, _DEFAULT_COMMON_NAME),
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         ]
     )
     now = datetime.datetime.now(datetime.timezone.utc)
