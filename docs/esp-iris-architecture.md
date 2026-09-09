@@ -75,6 +75,8 @@ write whose outcome is not yet established.
 
 Any contract change requires a compatibility test. Additive fields must remain
 skippable. Reinterpreting an existing field requires a new negotiated version.
+The hardware-derived Device ID rollout and legacy-host behavior are documented
+in [device-identity-migration.md](device-identity-migration.md).
 
 ## Test boundaries
 

@@ -40,6 +40,7 @@ typedef struct {
     esp_iris_lifecycle_t lifecycle;
     esp_iris_transport_kind_t transport;
     uint8_t device_id[16];
+    uint8_t hardware_mac[6];
     uint64_t boot_id;
     uint32_t session_id;
     uint64_t uptime_us;

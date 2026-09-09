@@ -97,6 +97,7 @@ typedef struct iris_runtime {
     iris_session_state_t session_state;
 
     uint8_t device_id[16];
+    uint8_t hardware_mac[6];
     uint64_t boot_id;
     uint32_t session_id;
     uint32_t sequence[ESP_IRIS_CHANNEL_COUNT];

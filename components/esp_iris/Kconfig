@@ -47,8 +47,9 @@ config ESP_IRIS_NVS_PARTITION_NAME
     string "NVS partition used for Iris retained state"
     default "nvs"
     help
-        Label of the NVS partition that stores the stable Device ID, TCP
-        pairing token, and crash-loop record. The partition table must contain
+        Label of the NVS partition that stores the TCP pairing token and
+        crash-loop record. Device ID is derived from the factory eFuse Base
+        MAC and does not use NVS. The partition table must contain
         an NVS partition with this label. Keep the default for shared NVS, or
         select a product-owned system metadata partition to isolate Iris state
         from application data.

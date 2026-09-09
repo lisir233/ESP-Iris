@@ -666,6 +666,16 @@ class IrisHub:
             raise RuntimeError(
                 f"device {info.device_id} already has a physical session"
             )
+        if info.hardware_mac:
+            for other_id, other in self._devices.items():
+                if (other is not session and other.info is not None
+                        and other.info.hardware_mac == info.hardware_mac
+                        and other_id != info.device_id):
+                    await session.close()
+                    raise RuntimeError(
+                        f"hardware MAC {info.hardware_mac} is already associated "
+                        f"with device {other_id}"
+                    )
         self._devices[info.device_id] = session
         self._set_endpoint_state(
             session.link.endpoint,

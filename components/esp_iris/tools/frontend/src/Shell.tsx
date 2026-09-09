@@ -95,6 +95,7 @@ export function DeviceRail({ devices, selectedId, onSelect, onRemove, language }
               <span className="device-copy">
                 <strong>{device.alias || device.suggested_alias || device.device_id.slice(0, 12)}</strong>
                 <small>{device.device_id.slice(0, 12)}</small>
+                {device.hardware_mac && <small>{device.hardware_mac}</small>}
                 <span><i className={`status-dot ${device.connected ? "online" : "offline"}`} />{device.connected ? "在线" : "离线"} · {firmwareModeLabel(device.firmware_mode)}</span>
                 <small>{device.transport_name || device.endpoint || "传输未知"}</small>
               </span>

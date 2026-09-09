@@ -276,6 +276,9 @@ export default function Workspace({
                 device.device_id.slice(0, 12)}
             </h1>
             <span className="mono-id">{device.device_id}</span>
+            {device.hardware_mac && (
+              <span className="mono-id">MAC {device.hardware_mac}</span>
+            )}
           </div>
           <div className="heading-status">
             <span

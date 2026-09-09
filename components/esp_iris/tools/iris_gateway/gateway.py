@@ -875,7 +875,7 @@ class GatewayService:
             )
             deadline = asyncio.get_running_loop().time() + timeout
             new_boot: Any = None
-            healthy = False
+            status: dict[str, Any] | None = None
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     event = await asyncio.wait_for(
@@ -886,15 +886,22 @@ class GatewayService:
                 if event.get("boot_id") != writer_boot and event.get("boot_id") is not None:
                     new_boot = event["boot_id"]
                 if event.get("event_name") == "healthy" and event.get("boot_id") == new_boot:
-                    healthy = True
-                    break
-            if new_boot is None or not healthy:
+                    candidate_status = await self.device_hub.status(device_id)
+                    if candidate_status.get("boot_id") == new_boot:
+                        status = candidate_status
+                        break
+                    # A second reboot can race the status read after the first
+                    # HEALTHY event. Keep observing and require the later boot
+                    # to publish its own HEALTHY event before accepting it.
+                    if (
+                        candidate_status.get("boot_id") != writer_boot
+                        and candidate_status.get("boot_id") is not None
+                    ):
+                        new_boot = candidate_status["boot_id"]
+            if new_boot is None or status is None:
                 raise OperationOutcomeUnknown(
-                    f"OTA was written, but reconnect/healthy acceptance was not observed within {timeout:g} seconds"
+                    f"OTA was written, but the final reconnect/healthy acceptance was not observed within {timeout:g} seconds"
                 )
-            status = await self.device_hub.status(device_id)
-            if status.get("boot_id") != new_boot:
-                raise OperationOutcomeUnknown("OTA boot changed after HEALTHY; acceptance needs reconciliation")
             validation = _validate_ota_identity(status, metadata, validation_mode)
             return {
                 **result,

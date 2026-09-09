@@ -71,6 +71,7 @@ class DeviceInfo:
     recovery_abi: int = 0
     required_features: int = 0
     health_timeout_ms: int = 45000
+    hardware_mac: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         result = boot_id_text(dataclasses.asdict(self))
@@ -302,6 +303,15 @@ class DeviceSession:
         raw_device_id = fields.get(int(TlvTag.DEVICE_ID), b"")
         if len(raw_device_id) != 16:
             raise ProtocolError("HELLO is missing a 16-byte device ID")
+        raw_hardware_mac = fields.get(int(TlvTag.HARDWARE_MAC), b"")
+        if raw_hardware_mac and len(raw_hardware_mac) != 6:
+            raise ProtocolError("HELLO has an invalid hardware MAC")
+        if raw_hardware_mac:
+            expected_device_id = b"ESP-IRIS\x01\x00" + raw_hardware_mac
+            if raw_device_id != expected_device_id:
+                raise ProtocolError(
+                    "device ID does not match the factory hardware MAC"
+                )
         protocol_version = tlv_u16(fields, TlvTag.PROTOCOL_VERSION)
         if protocol_version != 1:
             raise ProtocolError(f"unsupported ESP-Iris protocol {protocol_version}")
@@ -345,6 +355,7 @@ class DeviceSession:
             recovery_abi=tlv_u16(fields, TlvTag.RECOVERY_ABI),
             required_features=required_features,
             health_timeout_ms=health_timeout_ms,
+            hardware_mac=":".join(f"{byte:02x}" for byte in raw_hardware_mac),
         )
         reopening = (
             self._reopen_session_id is not None
@@ -634,6 +645,11 @@ class DeviceSession:
             raise ProtocolError("unexpected status response")
         fields = decode_tlv(frame.payload)
         assert self.info is not None
+        raw_hardware_mac = fields.get(int(TlvTag.HARDWARE_MAC), b"")
+        if raw_hardware_mac:
+            hardware_mac = ":".join(f"{byte:02x}" for byte in raw_hardware_mac)
+            if hardware_mac != self.info.hardware_mac:
+                raise ProtocolError("hardware MAC changed on a live session")
         return {
             **self.info.as_dict(),
             "uptime_us": tlv_u64(fields, TlvTag.UPTIME_US),

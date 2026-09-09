@@ -191,6 +191,8 @@ static esp_err_t queue_hello(iris_runtime_t *runtime)
 
     if (!tlv_put(&writer, ESP_IRIS_TLV_DEVICE_ID, runtime->device_id,
                  sizeof(runtime->device_id)) ||
+            !tlv_put(&writer, ESP_IRIS_TLV_HARDWARE_MAC,
+                     runtime->hardware_mac, sizeof(runtime->hardware_mac)) ||
             !tlv_put_u64(&writer, ESP_IRIS_TLV_BOOT_ID, runtime->boot_id) ||
             !tlv_put_u64(&writer, ESP_IRIS_TLV_UPTIME_US,
                          (uint64_t)esp_timer_get_time()) ||
@@ -351,7 +353,9 @@ static esp_err_t queue_status(iris_runtime_t *runtime, uint32_t request_id)
     dropped = runtime->log_dropped_bytes;
     taskEXIT_CRITICAL(&runtime->log_lock);
 
-    if (!tlv_put_u64(&writer, ESP_IRIS_TLV_UPTIME_US,
+    if (!tlv_put(&writer, ESP_IRIS_TLV_HARDWARE_MAC,
+                 runtime->hardware_mac, sizeof(runtime->hardware_mac)) ||
+            !tlv_put_u64(&writer, ESP_IRIS_TLV_UPTIME_US,
                      (uint64_t)esp_timer_get_time()) ||
             !tlv_put_u32(&writer, ESP_IRIS_TLV_FREE_INTERNAL,
                          heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) ||
@@ -1095,6 +1099,8 @@ esp_err_t esp_iris_get_status(esp_iris_status_t *out_status)
     };
     memcpy(out_status->device_id, g_iris.device_id,
            sizeof(out_status->device_id));
+    memcpy(out_status->hardware_mac, g_iris.hardware_mac,
+           sizeof(out_status->hardware_mac));
     memcpy(out_status->crash_failed_firmware_sha256,
            g_iris.crash_failed_firmware_sha256,
            sizeof(out_status->crash_failed_firmware_sha256));

@@ -419,7 +419,41 @@ def test_closed_loop_ota_rejects_project_change_when_required() -> None:
     asyncio.run(scenario())
 
 
-def test_closed_loop_ota_rejects_boot_changed_after_healthy():
+def test_closed_loop_ota_reconciles_boot_changed_after_healthy():
+    async def scenario():
+        class RebootAgainHub(RestartRaceHub):
+            async def status(self, device_id):
+                result = await super().status(device_id)
+                if self.status_calls > 1:
+                    result["boot_id"] = 99
+                return result
+
+            async def ota_update(self, device_id, image, **kwargs):
+                result = await super().ota_update(device_id, image, **kwargs)
+                self.queue.put_nowait(
+                    {"kind": "connection", "connection_state": "rebooted", "boot_id": 99}
+                )
+                self.queue.put_nowait(
+                    {"kind": "event", "event_name": "healthy", "boot_id": 99}
+                )
+                return result
+
+        service = GatewayService.__new__(GatewayService)
+        service.hub = RebootAgainHub()
+        service.operations = RecordingOperations()
+        result = await service.closed_loop_ota("device-a", b"firmware", {
+            "chip_id": 0x20,
+            "sha256": "00" * 32, "project_name": "esp_iris_ota",
+            "version": "1.0.2", "elf_sha256": ELF_SHA256,
+        }, "ota-op")
+
+        assert result["boot_id"] == 99
+        assert result["healthy"] is True
+
+    asyncio.run(scenario())
+
+
+def test_closed_loop_ota_rejects_later_boot_without_healthy():
     from iris_gateway.operations import OperationOutcomeUnknown
 
     async def scenario():
@@ -433,7 +467,8 @@ def test_closed_loop_ota_rejects_boot_changed_after_healthy():
         service = GatewayService.__new__(GatewayService)
         service.hub = RebootAgainHub()
         service.operations = RecordingOperations()
-        with pytest.raises(OperationOutcomeUnknown, match="boot changed after HEALTHY"):
+        service.ota_health_timeout = 1
+        with pytest.raises(OperationOutcomeUnknown, match="final reconnect/healthy"):
             await service.closed_loop_ota("device-a", b"firmware", {
                 "chip_id": 0x20,
                 "sha256": "00" * 32, "project_name": "esp_iris_ota",

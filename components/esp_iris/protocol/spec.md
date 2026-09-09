@@ -143,12 +143,14 @@ tag:u8 || length:u16 || value[length]
 ```
 
 The value's scalar encoding is defined by the tag. Unknown tags are skipped.
-Strings are UTF-8 without a terminating NUL. Device ID is 16 raw UUID bytes;
+Strings are UTF-8 without a terminating NUL. Device ID is 16 raw identity bytes;
 boot ID and capabilities are `u64`.
 
-The stable device ID is generated once and stored under NVS namespace
-`esp_iris`. The boot ID is random on every boot. Neither is derived solely
-from the MAC address.
+The stable device ID is the 10-byte domain prefix `ESP-IRIS 01 00` followed by
+the six-byte factory eFuse Base MAC. `HARDWARE_MAC` carries those same final six
+bytes explicitly. This keeps the existing 16-byte identity shape while making
+ROM download, Recovery and normal firmware derive exactly the same identity
+without NVS. The boot ID remains random on every boot.
 
 STATUS includes lifecycle state, link/invalid-frame counters, minimum worker
 stack headroom, maximum active worker-loop time, startup internal-heap delta
@@ -658,6 +660,7 @@ tags are ignored. Identity strings are UTF-8, at most 64 bytes, without a NUL.
 | 0x13 | u64 | Required host features; currently no bits defined |
 | 0x14 | u32 | Product health observation timeout, 1000..600000 ms |
 | 0x15 | string | Partition layout contract identifier |
+| 0x16 | 6 bytes | Factory eFuse Base MAC (`HARDWARE_MAC`) |
 
 Firmware emits its explicit Kconfig declarations (`ESP_IRIS_FIRMWARE_ROLE`,
 `ESP_IRIS_PRODUCT_CONTRACT`, `ESP_IRIS_BOARD_ID`, `ESP_IRIS_RECOVERY_ABI`,

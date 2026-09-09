@@ -1,5 +1,6 @@
 export type Device = {
   device_id: string;
+  hardware_mac?: string;
   alias?: string;
   suggested_alias?: string;
   connected: boolean;

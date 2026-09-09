@@ -2,13 +2,15 @@
 
 #include <string.h>
 
+#include "esp_mac.h"
 #include "esp_random.h"
-#include "nvs.h"
-#include "nvs_flash.h"
-#include "sdkconfig.h"
 
-#define IRIS_NVS_NAMESPACE "esp_iris"
-#define IRIS_NVS_DEVICE_ID "device_id"
+/* Keep the existing 16-byte Device ID wire shape while making the identity a
+ * direct, reversible function of the factory eFuse MAC.  The ten-byte domain
+ * prefix prevents these values from being confused with legacy random UUIDs. */
+static const uint8_t s_hardware_id_prefix[10] = {
+    'E', 'S', 'P', '-', 'I', 'R', 'I', 'S', 1, 0,
+};
 
 esp_err_t iris_identity_load_or_create(iris_runtime_t *runtime)
 {
@@ -16,40 +18,19 @@ esp_err_t iris_identity_load_or_create(iris_runtime_t *runtime)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err =
-        nvs_flash_init_partition(CONFIG_ESP_IRIS_NVS_PARTITION_NAME);
-    if (err != ESP_OK) {
-        /* Iris must never erase shared NVS as an implicit recovery action. */
-        return err;
-    }
-
-    nvs_handle_t handle;
-    err = nvs_open_from_partition(CONFIG_ESP_IRIS_NVS_PARTITION_NAME,
-                                  IRIS_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    /* ESP32-S31 supports IEEE 802.15.4, so esp_efuse_mac_get_default()
+     * returns an 8-byte EUI-64 and inserts the MAC extension in the middle.
+     * ESP-Iris identity intentionally uses the immutable 6-byte MAC_FACTORY
+     * value reported by the ROM's `read-mac` command. */
+    esp_err_t err = esp_read_mac(runtime->hardware_mac,
+                                 ESP_MAC_EFUSE_FACTORY);
     if (err != ESP_OK) {
         return err;
     }
-
-    size_t size = sizeof(runtime->device_id);
-    err = nvs_get_blob(handle, IRIS_NVS_DEVICE_ID, runtime->device_id, &size);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        esp_fill_random(runtime->device_id, sizeof(runtime->device_id));
-        /* RFC 4122 variant/version bits make the stored value recognizable as
-         * a random UUID while the wire representation stays 16 raw bytes. */
-        runtime->device_id[6] = (runtime->device_id[6] & 0x0fU) | 0x40U;
-        runtime->device_id[8] = (runtime->device_id[8] & 0x3fU) | 0x80U;
-        err = nvs_set_blob(handle, IRIS_NVS_DEVICE_ID, runtime->device_id,
-                           sizeof(runtime->device_id));
-        if (err == ESP_OK) {
-            err = nvs_commit(handle);
-        }
-    } else if (err == ESP_OK && size != sizeof(runtime->device_id)) {
-        err = ESP_ERR_INVALID_SIZE;
-    }
-    nvs_close(handle);
-    if (err != ESP_OK) {
-        return err;
-    }
+    memcpy(runtime->device_id, s_hardware_id_prefix,
+           sizeof(s_hardware_id_prefix));
+    memcpy(runtime->device_id + sizeof(s_hardware_id_prefix),
+           runtime->hardware_mac, sizeof(runtime->hardware_mac));
 
     do {
         esp_fill_random(&runtime->boot_id, sizeof(runtime->boot_id));

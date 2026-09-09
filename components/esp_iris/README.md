@@ -16,7 +16,7 @@ allocate media-sized buffers.
 
 Multiple devices can connect concurrently to one Python Developer Gateway
 through independent USB or TCP endpoints. The Gateway identifies each device
-by its stable `device_id`, aggregates and persists fleet events, and fans them
+by its stable, eFuse-MAC-derived `device_id`, aggregates and persists fleet events, and fans them
 out to the React Web Workbench, command-line clients, and external agents at
 the same time.
 
@@ -197,9 +197,10 @@ for products that prefer stronger crash-time reliability. The Core Dump symbol
 `g_iris_log_storage` contains a self-describing header followed by the retained
 record ring.
 
-ESP-Iris stores its stable Device ID and TCP pairing token in the NVS partition
-selected by `CONFIG_ESP_IRIS_NVS_PARTITION_NAME` (default: `nvs`). Products may
-point this setting at a fixed system metadata partition to keep identity out of
+ESP-Iris derives its stable Device ID from the factory eFuse Base MAC. It stores
+the TCP pairing token and crash-loop state in the NVS partition selected by
+`CONFIG_ESP_IRIS_NVS_PARTITION_NAME` (default: `nvs`). Products may point this
+setting at a fixed system metadata partition to isolate retained Iris state from
 application NVS.
 
 Register only the directories that the product intentionally exposes, before

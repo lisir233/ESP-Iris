@@ -74,11 +74,40 @@ def test_role_is_explicit_and_legacy_peer_remains_unknown(role, expected) -> Non
     asyncio.run(scenario())
 
 
+def test_hardware_mac_determines_device_id() -> None:
+    async def scenario() -> None:
+        link = IdentityLink()
+        session = DeviceSession(link, discard, discard)
+        hardware_mac = bytes.fromhex("30eda0123456")
+        frame = Frame(
+            channel=Channel.CONTROL,
+            type=ControlType.HELLO,
+            session_id=7,
+            payload=encode_tlv([
+                (TlvTag.DEVICE_ID, b"ESP-IRIS\x01\x00" + hardware_mac),
+                (TlvTag.HARDWARE_MAC, hardware_mac),
+                (TlvTag.PROTOCOL_VERSION, struct.pack("<H", 1)),
+            ]),
+        )
+        try:
+            await session._handle_hello(frame)
+            assert session.info is not None
+            assert session.info.hardware_mac == "30:ed:a0:12:34:56"
+            assert session.info.device_id == "4553502d49524953010030eda0123456"
+        finally:
+            if session._clock_task is not None:
+                session._clock_task.cancel()
+                await asyncio.gather(session._clock_task, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("field", [
     (TlvTag.REQUIRED_FEATURES, struct.pack("<Q", 1 << 63)),
     (TlvTag.FIRMWARE_ROLE, b"\x03"),
     (TlvTag.FIRMWARE_ROLE, b"\x01\x00"),
     (TlvTag.HEALTH_TIMEOUT_MS, struct.pack("<I", 0)),
+    (TlvTag.HARDWARE_MAC, b"\x00"),
 ])
 def test_incompatible_metadata_rejected_before_ack(field) -> None:
     async def scenario() -> None:
