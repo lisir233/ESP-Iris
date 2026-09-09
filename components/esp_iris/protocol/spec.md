@@ -303,6 +303,9 @@ opaque_etag:u64, chunk_max:u16, reserved:u16` and sets STREAM_BEGIN. READ is
 total_size:u64, data[]` after status. Requests are stop-and-wait and offsets are
 64-bit. The last DATA sets STREAM_END and flags bit 0. Files are read by the
 dedicated bounded, low-priority file task; only the Iris worker writes frames.
+The task, its queues, and per-stream working state are created on the first FILE
+request in a session and released when that session ends. Registered volume
+metadata remains available so the advertised capability does not change.
 
 WRITE_OPEN appends the following declaration to a nonempty path target:
 
@@ -729,11 +732,13 @@ Responses return through a separate owned buffer and are encoded by the
 protocol task with its current channel sequence. Session changes discard old
 completions and defer cleanup until the active callback/flash call returns.
 
-`CONFIG_ESP_IRIS_SERVICE_STACK_SIZE` defaults to 6144 bytes. The executor retains
-one private runtime buffer and one task across component stop/start; this is a
-bounded allocation rather than one task per request. Registration contexts must
-remain valid until unregister succeeds. Unregister rejects while work is active.
-A subsequent start rejects until deferred cleanup completes.
+`CONFIG_ESP_IRIS_SERVICE_STACK_SIZE` defaults to 6144 bytes. The executor owns
+one private runtime buffer and one task while slow work is active. Once the
+completion has drained and the executor remains idle for
+`CONFIG_ESP_IRIS_SERVICE_IDLE_TIMEOUT_MS` (1000 ms by default), the worker and
+private buffer are released and recreated for the next request. Registration
+contexts must remain valid until unregister succeeds. Unregister rejects while
+work is active. A subsequent start rejects until deferred cleanup completes.
 
 A deadline already expired before callback dispatch prevents invocation. A
 callback that exceeds its deadline returns TIMEOUT with no response body, but

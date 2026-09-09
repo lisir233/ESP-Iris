@@ -463,6 +463,18 @@ static void test_fragmented_malformed_corpus(void) {
         rt.tx_wire_length = 0;
     }
 }
+static void test_executor_idle_reap(void) {
+    if (s_executor.work == NULL) {
+        s_executor.work = calloc(1, sizeof(*s_executor.work));
+        assert(s_executor.work != NULL);
+    }
+    s_executor.task = (TaskHandle_t)(uintptr_t)1;
+    atomic_store(&s_executor.stage, IRIS_EXEC_IDLE);
+    assert(!executor_reap_idle((TaskHandle_t)(uintptr_t)2));
+    assert(s_executor.work != NULL && s_executor.task != NULL);
+    assert(executor_reap_idle((TaskHandle_t)(uintptr_t)1));
+    assert(s_executor.work == NULL && s_executor.task == NULL);
+}
 int main(void) {
     test_rpc_lengths(); test_coalesced_frames(); test_replay_and_reopen();
     test_claim_timeout(); test_executor_rpc(); test_fragmented_malformed_corpus();
@@ -476,5 +488,6 @@ int main(void) {
     test_inventory_executor_dispatch();
 #endif
     test_unsupported_executor_channel_type();
+    test_executor_idle_reap();
     free(s_executor.work); return 0;
 }

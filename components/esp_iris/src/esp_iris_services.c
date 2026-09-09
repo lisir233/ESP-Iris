@@ -763,12 +763,9 @@ esp_err_t esp_iris_pairing_token_set(const char token[65])
 
 esp_err_t iris_services_init(iris_runtime_t *runtime)
 {
+    (void)runtime;
     if (executor_busy()) {
         return ESP_ERR_INVALID_STATE;
-    }
-    esp_err_t err = iris_files_init(runtime);
-    if (err != ESP_OK) {
-        return err;
     }
 #if CONFIG_ESP_IRIS_TCP_PAIRING
     iris_service_state_t *state = service_state(true);
@@ -841,7 +838,7 @@ void iris_services_session_begin(iris_runtime_t *runtime)
 
 static void services_session_end_now(iris_runtime_t *runtime)
 {
-    iris_files_session_end(runtime->session_id);
+    iris_files_deinit();
     iris_system_update_session_end();
     iris_service_state_t *state = service_state(false);
     if (!valid_state(state)) {

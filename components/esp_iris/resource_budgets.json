@@ -1,16 +1,16 @@
 {
   "schema": "esp-iris-resource-budgets/v1",
   "source_lines": {
-    "components/esp_iris/src/esp_iris.c": 1100,
+    "components/esp_iris/src/esp_iris.c": 1200,
     "components/esp_iris/src/esp_iris_services.c": 2050,
-    "components/esp_iris/src/esp_iris_files.c": 1700,
+    "components/esp_iris/src/esp_iris_files.c": 1750,
     "components/esp_iris/tools/iris_gateway/gateway.py": 2050,
-    "components/esp_iris/tools/iris_gateway/session.py": 1200,
+    "components/esp_iris/tools/iris_gateway/session.py": 1300,
     "components/esp_iris/tools/iris_gateway/files.py": 550,
     "components/esp_iris/tools/iris_gateway/file_routes.py": 400,
     "components/esp_iris/tools/frontend/src/Files.tsx": 300,
     "components/esp_iris/tools/frontend/src/Workspace.tsx": 1550,
-    "components/esp_iris/src/esp_iris_executor.inc": 400,
+    "components/esp_iris/src/esp_iris_executor.inc": 450,
     "components/esp_iris/tools/iris_gateway/compatibility.py": 100,
     "components/esp_iris/tools/iris_gateway/reconciliation.py": 150,
     "components/esp_iris/tools/iris_gateway/operation_identity.py": 50

@@ -189,7 +189,17 @@ config ESP_IRIS_SERVICE_STACK_SIZE
     default 6144
     help
         One lazy bounded worker owns RPC callbacks and OTA flash steps.
-        Its private buffers and stack remain allocated across stop/start.
+        Its private buffers and stack are released after the configured idle
+        interval and recreated for the next slow operation.
+
+config ESP_IRIS_SERVICE_IDLE_TIMEOUT_MS
+    int "Slow service executor idle release delay (ms)"
+    range 100 60000
+    default 1000
+    help
+        Release the lazy service worker and its private frame buffers after
+        this much idle time. Active operations and responses waiting for TX
+        space are never reclaimed.
 
 config ESP_IRIS_TASK_STACK_SIZE
     int "Worker task stack size (bytes)"

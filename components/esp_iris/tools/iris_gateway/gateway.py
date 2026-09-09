@@ -875,7 +875,7 @@ class GatewayService:
             )
             deadline = asyncio.get_running_loop().time() + timeout
             new_boot: Any = None
-            status: dict[str, Any] | None = None
+            reconnected_status: dict[str, Any] | None = None
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     event = await asyncio.wait_for(
@@ -888,7 +888,7 @@ class GatewayService:
                 if event.get("event_name") == "healthy" and event.get("boot_id") == new_boot:
                     candidate_status = await self.device_hub.status(device_id)
                     if candidate_status.get("boot_id") == new_boot:
-                        status = candidate_status
+                        reconnected_status = candidate_status
                         break
                     # A second reboot can race the status read after the first
                     # HEALTHY event. Keep observing and require the later boot
@@ -898,11 +898,11 @@ class GatewayService:
                         and candidate_status.get("boot_id") is not None
                     ):
                         new_boot = candidate_status["boot_id"]
-            if new_boot is None or status is None:
+            if new_boot is None or reconnected_status is None:
                 raise OperationOutcomeUnknown(
                     f"OTA was written, but the final reconnect/healthy acceptance was not observed within {timeout:g} seconds"
                 )
-            validation = _validate_ota_identity(status, metadata, validation_mode)
+            validation = _validate_ota_identity(reconnected_status, metadata, validation_mode)
             return {
                 **result,
                 "validated_image": metadata,

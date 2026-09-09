@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r components/esp_iris/tools/requirements-test.txt
-      - run: python -m pytest -q tests/test_firmware_runtime.py --junitxml=sanitizer-results.xml
+      - run: python -m pytest -q tests/test_firmware_runtime.py tests/test_file_service_lifecycle.py --junitxml=sanitizer-results.xml
         working-directory: components/esp_iris/tools
       - uses: actions/upload-artifact@v4
         if: always()

@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "esp_heap_caps.h"
 #include "esp_random.h"
 #include "psa/crypto.h"
 
@@ -113,6 +114,13 @@ typedef struct {
     esp_iris_file_status_t result;
 } iris_file_write_receipt_t;
 
+typedef struct {
+    iris_file_work_t work;
+    iris_file_completion_t completion;
+    iris_file_handle_t handle;
+    iris_file_write_receipt_t receipt;
+} iris_file_task_context_t;
+
 static iris_file_volume_t s_volumes[CONFIG_ESP_IRIS_MAX_FILE_VOLUMES];
 static portMUX_TYPE s_volume_lock = portMUX_INITIALIZER_UNLOCKED;
 static QueueHandle_t s_work_queue;
@@ -120,10 +128,17 @@ static QueueHandle_t s_completion_queue;
 static TaskHandle_t s_file_task;
 static atomic_uint s_active_token = ATOMIC_VAR_INIT(0);
 static uint32_t s_next_token;
-static iris_file_work_t s_task_work;
-static iris_file_completion_t s_task_completion;
-static iris_file_handle_t s_task_handle;
-static iris_file_write_receipt_t s_write_receipt;
+static iris_file_task_context_t *s_task_context;
+static uint32_t s_allocated_bytes;
+
+static size_t bounded_string_length(const char *value, size_t capacity)
+{
+    size_t size = 0;
+    while (size < capacity && value[size] != '\0') {
+        ++size;
+    }
+    return size;
+}
 
 /* ESP-IDF's VFS exposes stat(), but not lstat(). The supported backing file
  * systems (LittleFS, SPIFFS and FATFS) do not implement symbolic links. */
@@ -182,7 +197,8 @@ static bool valid_volume_id(const char *id)
     if (id == NULL) {
         return false;
     }
-    const size_t size = strnlen(id, ESP_IRIS_FILE_VOLUME_ID_MAX + 1U);
+    const size_t size = bounded_string_length(
+        id, ESP_IRIS_FILE_VOLUME_ID_MAX + 1U);
     if (size == 0 || size > ESP_IRIS_FILE_VOLUME_ID_MAX) {
         return false;
     }
@@ -683,7 +699,8 @@ static void handle_list_next(const iris_file_work_t *work,
     struct stat metadata;
     char child_path[IRIS_FILE_FULL_PATH_SIZE];
     while ((entry = readdir(handle->directory)) != NULL) {
-        const size_t name_size = strnlen(entry->d_name, ESP_IRIS_FILE_PATH_MAX + 1U);
+        const size_t name_size = bounded_string_length(
+            entry->d_name, ESP_IRIS_FILE_PATH_MAX + 1U);
         if (name_size == 0 || name_size > ESP_IRIS_FILE_PATH_MAX ||
             strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
             !valid_utf8((const uint8_t *)entry->d_name, name_size)) {
@@ -1404,33 +1421,33 @@ static void process_work(const iris_file_work_t *work,
 
 static void file_task(void *argument)
 {
-    (void)argument;
-    memset(&s_task_handle, 0, sizeof(s_task_handle));
-    s_task_handle.fd = -1;
-    memset(&s_write_receipt, 0, sizeof(s_write_receipt));
-    while (xQueueReceive(s_work_queue, &s_task_work, portMAX_DELAY) == pdTRUE) {
-        if (s_task_work.kind == IRIS_FILE_WORK_STOP) {
+    iris_file_task_context_t *context = argument;
+    memset(&context->handle, 0, sizeof(context->handle));
+    context->handle.fd = -1;
+    memset(&context->receipt, 0, sizeof(context->receipt));
+    while (xQueueReceive(s_work_queue, &context->work, portMAX_DELAY) == pdTRUE) {
+        if (context->work.kind == IRIS_FILE_WORK_STOP) {
             break;
         }
-        if (s_task_work.kind == IRIS_FILE_WORK_SESSION_END) {
-            if (s_task_handle.kind != IRIS_FILE_HANDLE_NONE &&
-                s_task_handle.session_id == s_task_work.session_id) {
-                close_handle(&s_task_handle);
+        if (context->work.kind == IRIS_FILE_WORK_SESSION_END) {
+            if (context->handle.kind != IRIS_FILE_HANDLE_NONE &&
+                context->handle.session_id == context->work.session_id) {
+                close_handle(&context->handle);
             }
-            if (s_write_receipt.valid &&
-                s_write_receipt.session_id == s_task_work.session_id) {
-                s_write_receipt.valid = false;
+            if (context->receipt.valid &&
+                context->receipt.session_id == context->work.session_id) {
+                context->receipt.valid = false;
             }
             continue;
         }
-        process_work(&s_task_work, &s_task_completion, &s_task_handle,
-                     &s_write_receipt);
-        (void)xQueueSend(s_completion_queue, &s_task_completion, 0);
+        process_work(&context->work, &context->completion, &context->handle,
+                     &context->receipt);
+        (void)xQueueSend(s_completion_queue, &context->completion, 0);
         if (g_iris.task != NULL) {
             xTaskNotifyGive(g_iris.task);
         }
     }
-    close_handle(&s_task_handle);
+    close_handle(&context->handle);
     s_file_task = NULL;
     vTaskDelete(NULL);
 }
@@ -1455,8 +1472,8 @@ esp_err_t esp_iris_file_volume_register(
     if (esp_iris_is_started()) {
         return ESP_ERR_INVALID_STATE;
     }
-    const size_t base_size = strnlen(config->base_path,
-                                     ESP_IRIS_FILE_PATH_MAX + 1U);
+    const size_t base_size = bounded_string_length(
+        config->base_path, ESP_IRIS_FILE_PATH_MAX + 1U);
     if (base_size == 0 || base_size > ESP_IRIS_FILE_PATH_MAX ||
         config->base_path[base_size - 1U] == '/') {
         return ESP_ERR_INVALID_ARG;
@@ -1529,6 +1546,12 @@ esp_err_t iris_files_init(iris_runtime_t *runtime)
     if (s_file_task != NULL) {
         return ESP_OK;
     }
+    const uint32_t heap_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    s_task_context = heap_caps_calloc(
+        1, sizeof(*s_task_context), MALLOC_CAP_INTERNAL);
+    if (s_task_context == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
     atomic_store(&s_active_token, 0);
     s_work_queue = xQueueCreate(1, sizeof(iris_file_work_t));
     s_completion_queue = xQueueCreate(1, sizeof(iris_file_completion_t));
@@ -1537,12 +1560,14 @@ esp_err_t iris_files_init(iris_runtime_t *runtime)
         return ESP_ERR_NO_MEM;
     }
     if (xTaskCreate(file_task, "iris_files",
-                    CONFIG_ESP_IRIS_FILE_TASK_STACK_SIZE, NULL,
+                    CONFIG_ESP_IRIS_FILE_TASK_STACK_SIZE, s_task_context,
                     CONFIG_ESP_IRIS_FILE_TASK_PRIORITY,
                     &s_file_task) != pdPASS) {
         iris_files_deinit();
         return ESP_ERR_NO_MEM;
     }
+    const uint32_t heap_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    s_allocated_bytes = heap_before >= heap_after ? heap_before - heap_after : 0;
     return ESP_OK;
 }
 
@@ -1568,6 +1593,9 @@ void iris_files_deinit(void)
         vQueueDelete(s_completion_queue);
         s_completion_queue = NULL;
     }
+    heap_caps_free(s_task_context);
+    s_task_context = NULL;
+    s_allocated_bytes = 0;
 }
 
 void iris_files_session_end(uint32_t session_id)
@@ -1608,9 +1636,15 @@ bool iris_files_handle_frame(iris_runtime_t *runtime,
     if (frame->header.channel != ESP_IRIS_CHANNEL_FILE) {
         return false;
     }
-    if (s_work_queue == NULL || s_completion_queue == NULL) {
+    if (iris_files_capabilities() == 0) {
         immediate_status(runtime, frame, ESP_IRIS_FILE_STATUS_NOT_SUPPORTED);
         return true;
+    }
+    if (s_work_queue == NULL || s_completion_queue == NULL) {
+        if (iris_files_init(runtime) != ESP_OK) {
+            immediate_status(runtime, frame, ESP_IRIS_FILE_STATUS_NO_MEMORY);
+            return true;
+        }
     }
     if (frame->header.payload_size > IRIS_FILE_WORK_PAYLOAD_SIZE) {
         immediate_status(runtime, frame, ESP_IRIS_FILE_STATUS_INVALID_ARGUMENT);
@@ -1672,14 +1706,13 @@ bool iris_files_queue_next(iris_runtime_t *runtime)
 
 uint32_t iris_files_allocated_bytes(void)
 {
-    return 0;
+    return s_allocated_bytes;
 }
 
 uint32_t iris_files_static_bytes(void)
 {
     return sizeof(s_volumes) + sizeof(s_volume_lock) + sizeof(s_work_queue) +
         sizeof(s_completion_queue) + sizeof(s_file_task) +
-        sizeof(s_active_token) + sizeof(s_next_token) + sizeof(s_task_work) +
-        sizeof(s_task_completion) + sizeof(s_task_handle) +
-        sizeof(s_write_receipt);
+        sizeof(s_active_token) + sizeof(s_next_token) +
+        sizeof(s_task_context) + sizeof(s_allocated_bytes);
 }

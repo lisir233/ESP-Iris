@@ -1,6 +1,10 @@
 /* Included by services.c to keep private service ownership in one unit.
  * Only the protocol task submits/drains; only iris-service executes work.
  * Atomic stage release/acquire publishes the owned input and completion. */
+#ifndef CONFIG_ESP_IRIS_SERVICE_IDLE_TIMEOUT_MS
+#define CONFIG_ESP_IRIS_SERVICE_IDLE_TIMEOUT_MS 1000
+#endif
+
 enum { IRIS_EXEC_IDLE, IRIS_EXEC_QUEUED, IRIS_EXEC_RUNNING, IRIS_EXEC_DONE, IRIS_EXEC_RESERVED, IRIS_EXEC_DRAINING };
 static struct {
     atomic_int stage;
@@ -40,8 +44,12 @@ static void executor_request_ota_cancel(void)
 
 static uint32_t executor_allocated_bytes(void)
 {
-    return s_executor.work == NULL ? 0 : sizeof(*s_executor.work) +
-        CONFIG_ESP_IRIS_SERVICE_STACK_SIZE;
+    taskENTER_CRITICAL(&s_services_lock);
+    const bool has_work = s_executor.work != NULL;
+    const bool has_task = s_executor.task != NULL;
+    taskEXIT_CRITICAL(&s_services_lock);
+    return (has_work ? sizeof(*s_executor.work) : 0) +
+        (has_task ? CONFIG_ESP_IRIS_SERVICE_STACK_SIZE : 0);
 }
 
 static bool executor_ota_status(esp_iris_ota_status_t *out)
@@ -167,25 +175,57 @@ static void executor_run_one(void)
     iris_notify_worker(&g_iris);
 }
 
+static bool executor_reap_idle(TaskHandle_t task)
+{
+    iris_runtime_t *work = NULL;
+    taskENTER_CRITICAL(&s_services_lock);
+    if (atomic_load(&s_executor.stage) == IRIS_EXEC_IDLE &&
+            s_executor.task == task) {
+        work = s_executor.work;
+        s_executor.work = NULL;
+        s_executor.task = NULL;
+        s_executor.completion_decoded = false;
+    }
+    taskEXIT_CRITICAL(&s_services_lock);
+    if (work == NULL) {
+        return false;
+    }
+    free(work);
+    return true;
+}
+
 static void executor_worker(void *argument)
 {
     (void)argument;
-    /* Retained across stop/start: exactly one lazy, bounded worker per device. */
     for (;;) {
-        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const uint32_t notified = ulTaskNotifyTake(
+            pdTRUE, pdMS_TO_TICKS(CONFIG_ESP_IRIS_SERVICE_IDLE_TIMEOUT_MS));
+        if (notified == 0) {
+            if (executor_reap_idle(xTaskGetCurrentTaskHandle())) {
+                vTaskDelete(NULL);
+                return;
+            }
+            continue;
+        }
         executor_run_one();
     }
 }
 
 static esp_err_t executor_ensure(void)
 {
+    bool work_created = false;
     if (s_executor.work == NULL) {
         s_executor.work = heap_caps_calloc(1, sizeof(*s_executor.work), MALLOC_CAP_INTERNAL);
         if (s_executor.work == NULL) return ESP_ERR_NO_MEM;
+        work_created = true;
     }
     if (s_executor.task == NULL &&
         xTaskCreate(executor_worker, "iris-service", CONFIG_ESP_IRIS_SERVICE_STACK_SIZE,
                     NULL, CONFIG_ESP_IRIS_TASK_PRIORITY, &s_executor.task) != pdPASS) {
+        if (work_created) {
+            free(s_executor.work);
+            s_executor.work = NULL;
+        }
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

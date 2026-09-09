@@ -184,7 +184,7 @@ authentication, TLS, CLI commands, data retention, and development workflows.
 | OTA writer | Configurable; cross-project updates allowed by default | Chunked by `CONFIG_ESP_IRIS_OTA_CHUNK_BYTES`; `CONFIG_ESP_IRIS_OTA_REQUIRE_PROJECT_NAME_MATCH` opts into matching the running project |
 | System inventory | Disabled until a read-only product provider registers | Actual protected-region hashes and last committed operation; no write callbacks |
 | System Update | Disabled until recovery registers a product backend | Optional product signature policy, `CONFIG_ESP_IRIS_SYSTEM_UPDATE_MAX_COMPONENTS`, bounded manifest/signature/chunk sizes, and no generic raw-Flash API |
-| File service | Disabled until the application registers a logical volume | One file task, one stream, and `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` per chunk |
+| File service | Disabled until the application registers a logical volume; worker storage is allocated on the first request and released with the session | One file task, one stream, and `CONFIG_ESP_IRIS_FILE_CHUNK_BYTES` per chunk |
 
 The component uses credit-based channels and a latest-chunk policy for media.
 A slow host cannot create an unbounded device-side queue.
